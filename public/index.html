@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Market RSI Dashboard</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Market RSI Watch</h1>
+          <p>Top active tickers, 14-period RSI, and oversold recovery signals.</p>
+        </div>
+        <div class="status-panel">
+          <span id="connectionDot" class="dot"></span>
+          <span id="statusText">Starting</span>
+          <strong id="countdown">--</strong>
+        </div>
+      </header>
+
+      <section class="summary">
+        <div>
+          <span>Signals</span>
+          <strong id="signalCount">0</strong>
+        </div>
+        <div>
+          <span>Oversold</span>
+          <strong id="oversoldCount">0</strong>
+        </div>
+        <div>
+          <span>Extended</span>
+          <strong id="extendedCount">0</strong>
+        </div>
+        <div>
+          <span>Updated</span>
+          <strong id="updatedAt">--</strong>
+        </div>
+      </section>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Market Price</th>
+              <th>RSI</th>
+              <th>Previous RSI</th>
+              <th>Signal</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr>
+              <td colspan="5" class="loading">Loading market data...</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
