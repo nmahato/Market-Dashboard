@@ -136,12 +136,56 @@ th {
   background: #fbfcfd;
 }
 
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.sort-btn span {
+  display: inline-flex;
+  width: 12px;
+  justify-content: center;
+  color: var(--text);
+}
+
+.sort-btn.active {
+  color: var(--text);
+}
+
 td {
   font-size: 15px;
 }
 
 tr:last-child td {
   border-bottom: none;
+}
+
+.crossover-row td {
+  background: #ecfdf3;
+  box-shadow: inset 4px 0 0 var(--buy);
+}
+
+.crossover-row .symbol::after {
+  content: "CROSS";
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--buy);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 .symbol {
