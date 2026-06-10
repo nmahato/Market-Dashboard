@@ -4,13 +4,15 @@ const fs = require("fs");
 const path = require("path");
 const sqlite3 = require("sqlite3").verbose();
 
-const PORT = process.env.PORT || 4177;
+const PORT = process.env.PORT || 4178;
 const DB_PATH = process.env.SQLITE_DB_PATH || path.join(__dirname, "data", "market-watch.sqlite");
 const DEFAULT_SYMBOLS = ["MU", "MRVL", "NVDA", "TSLA", "INTC", "SNDK", "AMD", "AVGO", "AAPL", "MSFT"];
 const MAX_SYMBOLS = 50;
 const MAX_POST_BYTES = 4096;
+const AVG_VOLUME_CACHE_MS = 30 * 60 * 1000;
 let trackedSymbols = [...DEFAULT_SYMBOLS];
 let db;
+const averageVolumeCache = new Map();
 
 function initDatabase() {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -137,10 +139,47 @@ function rsiSeries(closes, period = 14) {
   return values.filter((value) => Number.isFinite(value));
 }
 
+async function getAverageVolumeData(symbol) {
+  const cached = averageVolumeCache.get(symbol);
+  if (cached && Date.now() - cached.cachedAt < AVG_VOLUME_CACHE_MS) {
+    return cached.data;
+  }
+
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=3mo&interval=1d`;
+  try {
+    const json = await requestJson(url);
+    const result = json.chart && json.chart.result && json.chart.result[0];
+    const quote = result && result.indicators && result.indicators.quote && result.indicators.quote[0];
+    const volumes = quote && Array.isArray(quote.volume)
+      ? quote.volume.filter((value) => Number.isFinite(value) && value > 0)
+      : [];
+
+    if (!volumes.length) return {};
+
+    const average = (values) => values.reduce((sum, value) => sum + value, 0) / values.length;
+    const data = {
+      averageDailyVolume10Day: average(volumes.slice(-10)),
+      averageDailyVolume3Month: average(volumes)
+    };
+    averageVolumeCache.set(symbol, {
+      cachedAt: Date.now(),
+      data
+    });
+    return data;
+  } catch (error) {
+    console.warn(`Average volume unavailable for ${symbol}: ${error.message}`);
+    return {};
+  }
+}
+
 async function getSymbolData(symbol) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`;
-  const json = await requestJson(url);
+  const [json, volumeData] = await Promise.all([
+    requestJson(url),
+    getAverageVolumeData(symbol)
+  ]);
   const result = json.chart && json.chart.result && json.chart.result[0];
+  const meta = (result && result.meta) || {};
   const quote = result && result.indicators && result.indicators.quote && result.indicators.quote[0];
   if (!quote || !Array.isArray(quote.close)) {
     throw new Error("No intraday candles returned");
@@ -156,10 +195,19 @@ async function getSymbolData(symbol) {
   const series = rsiSeries(closes);
   const last = closes[closes.length - 1];
   const startPrice = opens[0] || closes[0];
-  const currentVolume = volumes[volumes.length - 1];
-  const averageVolume = volumes.length >= 14
-    ? volumes.slice(-14).reduce((sum, value) => sum + value, 0) / 14
-    : null;
+  const intradayVolume = volumes.reduce((sum, value) => sum + value, 0);
+  const currentVolume = Number.isFinite(meta.regularMarketVolume)
+    ? Math.max(meta.regularMarketVolume, intradayVolume)
+    : intradayVolume;
+  const averageVolume = Number.isFinite(volumeData.averageDailyVolume10Day)
+    ? volumeData.averageDailyVolume10Day
+    : Number.isFinite(volumeData.averageDailyVolume3Month)
+      ? volumeData.averageDailyVolume3Month
+      : Number.isFinite(meta.averageDailyVolume10Day)
+        ? meta.averageDailyVolume10Day
+        : Number.isFinite(meta.averageDailyVolume3Month)
+          ? meta.averageDailyVolume3Month
+          : null;
   const todayChangePercent = Number.isFinite(startPrice) && startPrice !== 0
     ? ((last - startPrice) / startPrice) * 100
     : null;

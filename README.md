@@ -21,8 +21,12 @@ http://localhost:4177
 - `EXTENDED`: RSI is above 70.
 - `WATCH`: no active signal.
 
-The dashboard refreshes every 15 seconds.
+The dashboard refreshes every 5 seconds.
 
 ## SQLite snapshots
 
 On startup the server creates a SQLite database at `data/market-watch.sqlite`, or at `SQLITE_DB_PATH` if that environment variable is set. Every `/api/market` refresh inserts the latest watchlist rows into the `market_snapshots` table.
+
+## CI/CD
+
+GitHub Actions runs `npm ci` and `npm run build` on pushes and pull requests. Render auto-deploy is enabled in `render.yaml`; add a GitHub secret named `RENDER_DEPLOY_HOOK_URL` if you want Actions to trigger a Render deploy hook after the build succeeds on `developer`.

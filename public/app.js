@@ -15,6 +15,8 @@ const refreshSeconds = 5;
 let nextRefresh = refreshSeconds;
 let latestData = null;
 let sortState = { key: "symbol", direction: "asc" };
+let isRefreshing = false;
+let pendingRefresh = false;
 
 function formatMoney(value) {
   if (!Number.isFinite(value)) return "--";
@@ -54,7 +56,7 @@ function renderSparkline(values, changePercent) {
   const strokeColor = Number.isFinite(changePercent)
     ? (changePercent >= 0 ? "#0f8a5f" : "#aa2e25")
     : "#2f5f9f";
-  return `<svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><polyline points="${points}" stroke="${strokeColor}" /></svg>`;
+  return `<svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><polyline points="${points}" style="stroke: ${strokeColor}" /></svg>`;
 }
 
 function formatTime(value) {
@@ -151,7 +153,14 @@ sortButtons.forEach((button) => {
 });
 
 async function loadData() {
+  if (isRefreshing) {
+    pendingRefresh = true;
+    return;
+  }
+
+  isRefreshing = true;
   statusText.textContent = "Refreshing";
+  countdown.textContent = "now";
   try {
     const response = await fetch("/api/market", { cache: "no-store" });
     if (!response.ok) throw new Error(`Request failed with ${response.status}`);
@@ -164,7 +173,13 @@ async function loadData() {
     connectionDot.className = "dot error";
     rows.innerHTML = `<tr><td colspan="9" class="loading">${error.message}</td></tr>`;
   } finally {
+    isRefreshing = false;
     nextRefresh = refreshSeconds;
+    countdown.textContent = `${nextRefresh}s`;
+    if (pendingRefresh) {
+      pendingRefresh = false;
+      loadData();
+    }
   }
 }
 
@@ -196,10 +211,10 @@ symbolForm.addEventListener("submit", async (event) => {
 
 setInterval(() => {
   nextRefresh -= 1;
-  if (nextRefresh <= 0) {
+  if (nextRefresh <= 0 && !isRefreshing) {
     loadData();
   }
-  countdown.textContent = `${Math.max(nextRefresh, 0)}s`;
+  countdown.textContent = isRefreshing ? "now" : `${Math.max(nextRefresh, 0)}s`;
 }, 1000);
 
 document.addEventListener("visibilitychange", () => {
