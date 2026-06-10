@@ -22,3 +22,7 @@ http://localhost:4177
 - `WATCH`: no active signal.
 
 The dashboard refreshes every 15 seconds.
+
+## SQLite snapshots
+
+On startup the server creates a SQLite database at `data/market-watch.sqlite`, or at `SQLITE_DB_PATH` if that environment variable is set. Every `/api/market` refresh inserts the latest watchlist rows into the `market_snapshots` table.

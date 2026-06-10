@@ -88,6 +88,54 @@ p {
   margin-bottom: 14px;
 }
 
+.symbol-controls {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.symbol-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.symbol-form label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.symbol-form input {
+  flex: 1 1 220px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.symbol-form button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--watch);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.helper-text {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .summary div {
   min-height: 72px;
   padding: 12px;
@@ -196,6 +244,37 @@ tr:last-child td {
   font-variant-numeric: tabular-nums;
 }
 
+.change {
+  display: inline-flex;
+  font-weight: 700;
+}
+
+.change.positive {
+  color: var(--buy);
+}
+
+.change.negative {
+  color: var(--hot);
+}
+
+.change.neutral {
+  color: var(--muted);
+}
+
+.sparkline {
+  width: 110px;
+  height: 36px;
+  display: block;
+}
+
+.sparkline polyline {
+  fill: none;
+  stroke: var(--watch);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .badge {
   display: inline-flex;
   min-width: 92px;
@@ -248,5 +327,14 @@ tr:last-child td {
 
   .summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .symbol-form {
+    display: block;
+  }
+
+  .symbol-form button {
+    margin-top: 10px;
+    width: 100%;
   }
 }

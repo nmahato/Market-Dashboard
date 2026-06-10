@@ -2,9 +2,104 @@ const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const sqlite3 = require("sqlite3").verbose();
 
 const PORT = process.env.PORT || 4177;
-const SYMBOLS = ["MU", "MRVL", "NVDA", "TSLA", "INTC", "SNDK", "AMD", "AVGO", "AAPL", "MSFT"];
+const DB_PATH = process.env.SQLITE_DB_PATH || path.join(__dirname, "data", "market-watch.sqlite");
+const DEFAULT_SYMBOLS = ["MU", "MRVL", "NVDA", "TSLA", "INTC", "SNDK", "AMD", "AVGO", "AAPL", "MSFT"];
+const MAX_SYMBOLS = 50;
+const MAX_POST_BYTES = 4096;
+let trackedSymbols = [...DEFAULT_SYMBOLS];
+let db;
+
+function initDatabase() {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  db = new sqlite3.Database(DB_PATH, (error) => {
+    if (error) {
+      console.error("Failed to open SQLite database:", error.message);
+    }
+  });
+
+  db.serialize(() => {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS market_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        price REAL,
+        volume INTEGER,
+        avg_volume INTEGER,
+        today_change_percent REAL,
+        rsi REAL,
+        previous_rsi REAL,
+        state TEXT NOT NULL,
+        crossed_back_above_30 INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        observed_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.run("CREATE INDEX IF NOT EXISTS idx_market_snapshots_symbol_observed ON market_snapshots(symbol, observed_at)");
+  });
+}
+
+function normalizeSymbols(input) {
+  const rawSymbols = Array.isArray(input) ? input : String(input || "").split(",");
+  return rawSymbols
+    .map((value) => value.trim().toUpperCase())
+    .filter((symbol) => /^[A-Z0-9][A-Z0-9.-]{0,9}$/.test(symbol))
+    .filter((symbol, index, array) => array.indexOf(symbol) === index);
+}
+
+function addTrackedSymbols(input) {
+  const newSymbols = normalizeSymbols(input);
+  if (!newSymbols.length) return trackedSymbols;
+  trackedSymbols = Array.from(new Set([...trackedSymbols, ...newSymbols])).slice(0, MAX_SYMBOLS);
+  return trackedSymbols;
+}
+
+function saveMarketSnapshot(data, observedAt) {
+  if (!db || !Array.isArray(data) || !data.length) return;
+
+  db.serialize(() => {
+    const statement = db.prepare(`
+      INSERT INTO market_snapshots (
+        symbol,
+        price,
+        volume,
+        avg_volume,
+        today_change_percent,
+        rsi,
+        previous_rsi,
+        state,
+        crossed_back_above_30,
+        error,
+        observed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    data.forEach((item) => {
+      statement.run(
+        item.symbol,
+        Number.isFinite(item.price) ? item.price : null,
+        Number.isFinite(item.volume) ? item.volume : null,
+        Number.isFinite(item.avgVolume) ? item.avgVolume : null,
+        Number.isFinite(item.todayChangePercent) ? item.todayChangePercent : null,
+        Number.isFinite(item.rsi) ? item.rsi : null,
+        Number.isFinite(item.previousRsi) ? item.previousRsi : null,
+        item.state || "ERROR",
+        item.crossedBackAbove30 ? 1 : 0,
+        item.error || null,
+        observedAt
+      );
+    });
+
+    statement.finalize((error) => {
+      if (error) {
+        console.error("Failed to save market snapshot:", error.message);
+      }
+    });
+  });
+}
 
 function calculateRsi(values, period = 14) {
   if (values.length < period + 1) return null;
@@ -52,12 +147,22 @@ async function getSymbolData(symbol) {
   }
 
   const closes = quote.close.filter((value) => Number.isFinite(value));
+  const opens = (quote.open || []).filter((value) => Number.isFinite(value));
+  const volumes = (quote.volume || []).filter((value) => Number.isFinite(value));
   if (closes.length < 16) {
     throw new Error("Not enough candles for RSI");
   }
 
   const series = rsiSeries(closes);
   const last = closes[closes.length - 1];
+  const startPrice = opens[0] || closes[0];
+  const currentVolume = volumes[volumes.length - 1];
+  const averageVolume = volumes.length >= 14
+    ? volumes.slice(-14).reduce((sum, value) => sum + value, 0) / 14
+    : null;
+  const todayChangePercent = Number.isFinite(startPrice) && startPrice !== 0
+    ? ((last - startPrice) / startPrice) * 100
+    : null;
   const rsi = series[series.length - 1];
   const previousRsi = series[series.length - 2];
   const crossedBackAbove30 = previousRsi <= 30 && rsi > 30;
@@ -65,6 +170,10 @@ async function getSymbolData(symbol) {
   return {
     symbol,
     price: Number(last.toFixed(2)),
+    volume: Number.isFinite(currentVolume) ? Math.round(currentVolume) : null,
+    avgVolume: Number.isFinite(averageVolume) ? Math.round(averageVolume) : null,
+    todayChangePercent: Number.isFinite(todayChangePercent) ? Number(todayChangePercent.toFixed(2)) : null,
+    chart: closes.slice(-20),
     rsi: Number(rsi.toFixed(2)),
     previousRsi: Number(previousRsi.toFixed(2)),
     crossedBackAbove30,
@@ -78,7 +187,6 @@ function requestJson(url) {
     const request = https.get(
       url,
       {
-        rejectUnauthorized: false,
         headers: {
           "User-Agent": "Mozilla/5.0",
           Accept: "application/json"
@@ -112,11 +220,11 @@ function requestJson(url) {
 }
 
 async function getMarketData() {
-  const settled = await Promise.allSettled(SYMBOLS.map(getSymbolData));
+  const settled = await Promise.allSettled(trackedSymbols.map(getSymbolData));
   return settled.map((result, index) => {
     if (result.status === "fulfilled") return result.value;
     return {
-      symbol: SYMBOLS[index],
+      symbol: trackedSymbols[index],
       error: result.reason.message,
       state: "ERROR",
       updatedAt: new Date().toISOString()
@@ -149,25 +257,64 @@ function sendStatic(req, res) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
   if (req.url.startsWith("/api/market")) {
-    try {
-      const data = await getMarketData();
-      sendJson(res, {
-        symbols: SYMBOLS,
-        updatedAt: new Date().toISOString(),
-        data
-      });
-    } catch (error) {
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: error.message }));
-    }
+    (async () => {
+      try {
+        const data = await getMarketData();
+        const observedAt = new Date().toISOString();
+        saveMarketSnapshot(data, observedAt);
+        sendJson(res, {
+          symbols: trackedSymbols,
+          updatedAt: observedAt,
+          data
+        });
+      } catch (error) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    })();
+    return;
+  }
+
+  if (req.method === "POST" && req.url.startsWith("/api/symbols")) {
+    let body = "";
+    let tooLarge = false;
+    req.on("data", (chunk) => {
+      if (tooLarge) return;
+      body += chunk;
+      if (body.length > MAX_POST_BYTES) {
+        tooLarge = true;
+      }
+    });
+    req.on("end", () => {
+      if (tooLarge) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Request body is too large" }));
+        return;
+      }
+
+      try {
+        const payload = body ? JSON.parse(body) : {};
+        const symbols = addTrackedSymbols(payload.symbols);
+        sendJson(res, {
+          symbols,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    });
     return;
   }
 
   sendStatic(req, res);
 });
 
+initDatabase();
+
 server.listen(PORT, () => {
   console.log(`Market RSI dashboard running at http://localhost:${PORT}`);
+  console.log(`Writing market snapshots to ${DB_PATH}`);
 });

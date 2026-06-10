@@ -39,12 +39,25 @@
         </div>
       </section>
 
+      <section class="symbol-controls">
+        <form id="symbolForm" class="symbol-form">
+          <label for="symbolInput">Add symbols</label>
+          <input id="symbolInput" name="symbols" type="text" placeholder="e.g. GOOG, AMZN, PLTR">
+          <button type="submit">Add</button>
+        </form>
+        <p id="symbolStatus" class="helper-text">Tracking the default watchlist.</p>
+      </section>
+
       <section class="table-wrap">
         <table>
           <thead>
             <tr>
               <th><button class="sort-btn active" data-sort="symbol">Ticker <span aria-hidden="true">^</span></button></th>
               <th><button class="sort-btn" data-sort="price">Market Price <span aria-hidden="true"></span></button></th>
+              <th>Current Volume</th>
+              <th>Avg Volume</th>
+              <th><button class="sort-btn" data-sort="todayChangePercent">Today % Change <span aria-hidden="true"></span></button></th>
+              <th>Chart</th>
               <th><button class="sort-btn" data-sort="rsi">RSI <span aria-hidden="true"></span></button></th>
               <th><button class="sort-btn" data-sort="previousRsi">Previous RSI <span aria-hidden="true"></span></button></th>
               <th><button class="sort-btn" data-sort="state">Signal <span aria-hidden="true"></span></button></th>
@@ -52,7 +65,7 @@
           </thead>
           <tbody id="rows">
             <tr>
-              <td colspan="5" class="loading">Loading market data...</td>
+              <td colspan="9" class="loading">Loading market data...</td>
             </tr>
           </tbody>
         </table>
