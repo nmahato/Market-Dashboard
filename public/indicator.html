@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VWAP Signal Export</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>VWAP Signal Export</h1>
+          <p>Calculate VWAP, EMA9, EMA21, buy and sell signals from candle data.</p>
+        </div>
+        <nav class="page-nav" aria-label="Dashboard pages">
+          <a href="/">RSI Watch</a>
+          <a href="/indicator.html" aria-current="page">VWAP Signals</a>
+        </nav>
+      </header>
+
+      <section class="indicator-grid">
+        <form id="indicatorForm" class="indicator-panel">
+          <div class="live-controls">
+            <label for="symbolInput">Symbol</label>
+            <input id="symbolInput" name="symbol" type="text" value="NVDA" maxlength="10">
+            <label for="intervalSelect">Interval</label>
+            <select id="intervalSelect" name="interval">
+              <option value="1m">1m</option>
+              <option value="2m">2m</option>
+              <option value="5m">5m</option>
+              <option value="15m">15m</option>
+              <option value="30m">30m</option>
+              <option value="60m">60m</option>
+            </select>
+            <button id="fetchLive" type="button">Live</button>
+            <label class="toggle-control" for="autoRefresh">
+              <input id="autoRefresh" type="checkbox">
+              Auto
+            </label>
+          </div>
+          <label for="candleInput">Candles</label>
+          <textarea id="candleInput" spellcheck="false"></textarea>
+          <div class="indicator-actions">
+            <button type="submit">Calculate</button>
+            <button id="loadSample" type="button" class="secondary-btn">Sample</button>
+            <button id="exportJson" type="button" class="secondary-btn" disabled>Export JSON</button>
+          </div>
+          <p id="indicatorStatus" class="helper-text">Paste JSON or CSV with time, open, high, low, close, volume.</p>
+        </form>
+
+        <section class="indicator-summary" aria-label="Signal summary">
+          <div>
+            <span>Rows</span>
+            <strong id="rowCount">0</strong>
+          </div>
+          <div>
+            <span>Buy Signals</span>
+            <strong id="buyCount">0</strong>
+          </div>
+          <div>
+            <span>Sell Signals</span>
+            <strong id="sellCount">0</strong>
+          </div>
+        </section>
+      </section>
+
+      <section class="chart-panel" aria-label="Signal chart">
+        <div class="chart-header">
+          <div>
+            <h2>Price, VWAP, and EMAs</h2>
+            <p id="chartRange">No chart data yet.</p>
+          </div>
+          <div class="chart-legend" aria-label="Chart legend">
+            <span><i class="legend-price"></i>Price</span>
+            <span><i class="legend-vwap"></i>VWAP</span>
+            <span><i class="legend-ema9"></i>EMA9</span>
+            <span><i class="legend-ema21"></i>EMA21</span>
+            <span><i class="legend-buy"></i>Buy</span>
+            <span><i class="legend-sell"></i>Sell</span>
+          </div>
+        </div>
+        <div id="indicatorChart" class="indicator-chart">
+          <p>No candle data calculated yet.</p>
+        </div>
+      </section>
+
+      <section class="table-wrap">
+        <table class="indicator-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Open</th>
+              <th>High</th>
+              <th>Low</th>
+              <th>Close</th>
+              <th>Volume</th>
+              <th>VWAP</th>
+              <th>EMA9</th>
+              <th>EMA21</th>
+              <th>Signal</th>
+              <th>Entry</th>
+              <th>TP1</th>
+              <th>TP2</th>
+              <th>Stop</th>
+            </tr>
+          </thead>
+          <tbody id="indicatorRows">
+            <tr>
+              <td colspan="14" class="loading">No candle data calculated yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+    <script src="/indicator.js"></script>
+  </body>
+</html>

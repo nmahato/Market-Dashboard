@@ -62,6 +62,39 @@ p {
   background: var(--panel);
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.page-nav {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.page-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.page-nav a[aria-current="page"] {
+  color: #fff;
+  background: var(--watch);
+}
+
 .dot {
   width: 10px;
   height: 10px;
@@ -136,6 +169,309 @@ p {
   font-size: 13px;
 }
 
+.indicator-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.indicator-panel,
+.indicator-summary {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.indicator-panel label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.live-controls {
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr) auto 92px auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.live-controls label {
+  margin: 0;
+}
+
+.live-controls input[type="text"],
+.live-controls select {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+}
+
+.live-controls button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--watch);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toggle-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.toggle-control input {
+  margin: 0;
+}
+
+.indicator-panel textarea {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: 13px/1.5 Consolas, "Liberation Mono", monospace;
+}
+
+.indicator-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.indicator-actions button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--watch);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.indicator-actions .secondary-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.indicator-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.indicator-summary {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.indicator-summary div {
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.indicator-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.indicator-summary strong {
+  font-size: 22px;
+}
+
+.chart-panel {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.chart-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend i {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+}
+
+.legend-price {
+  background: #1d2430;
+}
+
+.legend-vwap {
+  background: #7a4cc2;
+}
+
+.legend-ema9 {
+  background: #0f8a5f;
+}
+
+.legend-ema21 {
+  background: #c46a00;
+}
+
+.legend-buy {
+  background: var(--buy);
+}
+
+.legend-sell {
+  background: var(--hot);
+}
+
+.indicator-chart {
+  min-height: 320px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.indicator-chart p {
+  padding: 140px 16px;
+  text-align: center;
+}
+
+.signal-chart {
+  display: block;
+  width: 100%;
+  min-width: 820px;
+  height: auto;
+}
+
+.chart-bg {
+  fill: #fbfcfd;
+}
+
+.chart-grid {
+  stroke: #e6eaf0;
+  stroke-width: 1;
+}
+
+.chart-axis {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.candle-wick {
+  stroke-width: 1.4;
+}
+
+.candle-body.up,
+.candle-wick.up {
+  fill: #dff3ea;
+  stroke: var(--buy);
+}
+
+.candle-body.down,
+.candle-wick.down {
+  fill: #ffe8e5;
+  stroke: var(--hot);
+}
+
+.price-line,
+.vwap-line,
+.ema9-line,
+.ema21-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.price-line {
+  stroke: #1d2430;
+  opacity: 0.72;
+}
+
+.vwap-line {
+  stroke: #7a4cc2;
+}
+
+.ema9-line {
+  stroke: var(--buy);
+}
+
+.ema21-line {
+  stroke: #c46a00;
+}
+
+.buy-marker,
+.sell-marker {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+circle.buy-marker {
+  fill: var(--buy);
+}
+
+circle.sell-marker {
+  fill: var(--hot);
+}
+
+text.buy-marker {
+  fill: var(--buy);
+}
+
+text.sell-marker {
+  fill: var(--hot);
+}
+
 .summary div {
   min-height: 72px;
   padding: 12px;
@@ -166,6 +502,10 @@ table {
   width: 100%;
   border-collapse: collapse;
   min-width: 760px;
+}
+
+.indicator-table {
+  min-width: 1240px;
 }
 
 th,
@@ -285,6 +625,18 @@ tr:last-child td {
   font-weight: 700;
 }
 
+.signal-link {
+  border: 0;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.signal-link:hover,
+.signal-link:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 .BUY_SIGNAL {
   color: var(--buy);
   background: var(--buy-bg);
@@ -320,6 +672,20 @@ tr:last-child td {
     display: block;
   }
 
+  .topbar-actions {
+    display: block;
+    margin-top: 14px;
+  }
+
+  .page-nav {
+    width: 100%;
+  }
+
+  .page-nav a {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
   .status-panel {
     margin-top: 14px;
     width: 100%;
@@ -335,6 +701,27 @@ tr:last-child td {
 
   .symbol-form button {
     margin-top: 10px;
+    width: 100%;
+  }
+
+  .indicator-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-header {
+    display: block;
+  }
+
+  .chart-legend {
+    justify-content: flex-start;
+    margin-top: 10px;
+  }
+
+  .live-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .indicator-actions button {
     width: 100%;
   }
 }

@@ -10,6 +10,7 @@ const DEFAULT_SYMBOLS = ["MU", "MRVL", "NVDA", "TSLA", "INTC", "SNDK", "AMD", "A
 const MAX_SYMBOLS = 50;
 const MAX_POST_BYTES = 4096;
 const AVG_VOLUME_CACHE_MS = 30 * 60 * 1000;
+const CANDLE_INTERVALS = new Set(["1m", "2m", "5m", "15m", "30m", "60m"]);
 let trackedSymbols = [...DEFAULT_SYMBOLS];
 let db;
 const averageVolumeCache = new Map();
@@ -230,6 +231,49 @@ async function getSymbolData(symbol) {
   };
 }
 
+async function getCandles(symbol, interval = "1m") {
+  const normalizedSymbol = normalizeSymbols(symbol)[0];
+  const normalizedInterval = CANDLE_INTERVALS.has(interval) ? interval : "1m";
+  if (!normalizedSymbol) {
+    throw new Error("A valid symbol is required");
+  }
+
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(normalizedSymbol)}?range=1d&interval=${normalizedInterval}`;
+  const json = await requestJson(url);
+  const result = json.chart && json.chart.result && json.chart.result[0];
+  const timestamps = result && Array.isArray(result.timestamp) ? result.timestamp : [];
+  const quote = result && result.indicators && result.indicators.quote && result.indicators.quote[0];
+  if (!quote || !timestamps.length) {
+    throw new Error("No candles returned");
+  }
+
+  const candles = timestamps
+    .map((timestamp, index) => ({
+      time: new Date(timestamp * 1000).toISOString(),
+      open: quote.open && quote.open[index],
+      high: quote.high && quote.high[index],
+      low: quote.low && quote.low[index],
+      close: quote.close && quote.close[index],
+      volume: quote.volume && quote.volume[index]
+    }))
+    .filter((candle) => Number.isFinite(candle.open) &&
+      Number.isFinite(candle.high) &&
+      Number.isFinite(candle.low) &&
+      Number.isFinite(candle.close) &&
+      Number.isFinite(candle.volume));
+
+  if (!candles.length) {
+    throw new Error("No complete candles returned");
+  }
+
+  return {
+    symbol: normalizedSymbol,
+    interval: normalizedInterval,
+    updatedAt: new Date().toISOString(),
+    candles
+  };
+}
+
 function requestJson(url) {
   return new Promise((resolve, reject) => {
     const request = https.get(
@@ -289,7 +333,8 @@ function sendJson(res, payload) {
 }
 
 function sendStatic(req, res) {
-  const requested = req.url === "/" ? "/index.html" : req.url;
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const requested = parsedUrl.pathname === "/" ? "/index.html" : parsedUrl.pathname;
   const filePath = path.join(__dirname, "public", path.normalize(requested).replace(/^(\.\.[/\\])+/, ""));
   const ext = path.extname(filePath).toLowerCase();
   const contentType = ext === ".css" ? "text/css" : ext === ".js" ? "text/javascript" : "text/html";
@@ -306,6 +351,8 @@ function sendStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
   if (req.url.startsWith("/api/market")) {
     (async () => {
       try {
@@ -319,6 +366,22 @@ const server = http.createServer((req, res) => {
         });
       } catch (error) {
         res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/candles") {
+    (async () => {
+      try {
+        const data = await getCandles(
+          parsedUrl.searchParams.get("symbol") || DEFAULT_SYMBOLS[0],
+          parsedUrl.searchParams.get("interval") || "1m"
+        );
+        sendJson(res, data);
+      } catch (error) {
+        res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: error.message }));
       }
     })();

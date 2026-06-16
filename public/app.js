@@ -132,7 +132,7 @@ function render(data) {
           <td>${renderSparkline(item.chart, item.todayChangePercent)}</td>
           <td class="rsi">${Number.isFinite(item.rsi) ? item.rsi.toFixed(2) : "--"}</td>
           <td class="rsi">${Number.isFinite(item.previousRsi) ? item.previousRsi.toFixed(2) : "--"}</td>
-          <td><span class="badge ${stateClass}">${signalLabel}</span></td>
+          <td><a class="badge signal-link ${stateClass}" href="/indicator.html?symbol=${encodeURIComponent(item.symbol)}&live=1">${signalLabel}</a></td>
         </tr>
       `;
     })
