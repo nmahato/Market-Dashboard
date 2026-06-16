@@ -10,13 +10,15 @@ const symbolForm = document.getElementById("symbolForm");
 const symbolInput = document.getElementById("symbolInput");
 const symbolStatus = document.getElementById("symbolStatus");
 const sortButtons = Array.from(document.querySelectorAll(".sort-btn"));
+const symbolSuggestions = document.getElementById("symbolSuggestions");
 
 const refreshSeconds = 5;
 let nextRefresh = refreshSeconds;
 let latestData = null;
-let sortState = { key: "symbol", direction: "asc" };
+let sortState = { key: "updatedAt", direction: "desc" };
 let isRefreshing = false;
 let pendingRefresh = false;
+let symbolSearch;
 
 function formatMoney(value) {
   if (!Number.isFinite(value)) return "--";
@@ -71,8 +73,8 @@ function formatTime(value) {
 function compareItems(a, b) {
   const { key, direction } = sortState;
   const multiplier = direction === "asc" ? 1 : -1;
-  const first = a[key];
-  const second = b[key];
+  const first = getSortValue(a, key);
+  const second = getSortValue(b, key);
 
   if (typeof first === "number" || typeof second === "number") {
     const firstValue = Number.isFinite(first) ? first : Number.NEGATIVE_INFINITY;
@@ -84,6 +86,20 @@ function compareItems(a, b) {
     numeric: true,
     sensitivity: "base"
   }) * multiplier;
+}
+
+function getSortValue(item, key) {
+  if (key === "updatedAt") {
+    const timestamp = Date.parse(item.updatedAt);
+    return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+  }
+
+  if (key === "chartLast") {
+    const values = Array.isArray(item.chart) ? item.chart : [];
+    return values.length ? values[values.length - 1] : Number.NEGATIVE_INFINITY;
+  }
+
+  return item[key];
 }
 
 function updateSortHeaders() {
@@ -124,6 +140,7 @@ function render(data) {
         : "neutral";
       return `
         <tr class="${rowClass}">
+          <td>${formatTime(item.updatedAt)}</td>
           <td class="symbol">${item.symbol}</td>
           <td>${formatMoney(item.price)}</td>
           <td>${formatVolume(item.volume)}</td>
@@ -145,7 +162,7 @@ sortButtons.forEach((button) => {
     if (sortState.key === key) {
       sortState = { key, direction: sortState.direction === "asc" ? "desc" : "asc" };
     } else {
-      sortState = { key, direction: key === "symbol" ? "asc" : "desc" };
+      sortState = { key, direction: key === "symbol" || key === "state" ? "asc" : "desc" };
     }
     updateSortHeaders();
     if (latestData) render(latestData);
@@ -171,7 +188,7 @@ async function loadData() {
   } catch (error) {
     statusText.textContent = "Data error";
     connectionDot.className = "dot error";
-    rows.innerHTML = `<tr><td colspan="9" class="loading">${error.message}</td></tr>`;
+    rows.innerHTML = `<tr><td colspan="10" class="loading">${error.message}</td></tr>`;
   } finally {
     isRefreshing = false;
     nextRefresh = refreshSeconds;
@@ -185,11 +202,14 @@ async function loadData() {
 
 symbolForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const value = symbolInput.value.trim();
+  let value = symbolInput.value.trim();
   if (!value) return;
 
   symbolStatus.textContent = "Adding symbols...";
   try {
+    if (!value.includes(",") && window.resolveStockSymbol) {
+      value = await window.resolveStockSymbol(value);
+    }
     const response = await fetch("/api/symbols", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -198,6 +218,7 @@ symbolForm.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(`Request failed with ${response.status}`);
     const result = await response.json();
     symbolInput.value = "";
+    if (symbolSearch) symbolSearch.hide();
     if (Array.isArray(result.symbols) && result.symbols.length) {
       symbolStatus.textContent = `Tracking ${result.symbols.length} symbols: ${result.symbols.join(", ")}`;
     } else {
@@ -208,6 +229,13 @@ symbolForm.addEventListener("submit", async (event) => {
     symbolStatus.textContent = error.message;
   }
 });
+
+if (window.createStockSearch && symbolSuggestions) {
+  symbolSearch = window.createStockSearch({
+    input: symbolInput,
+    suggestions: symbolSuggestions
+  });
+}
 
 setInterval(() => {
   nextRefresh -= 1;

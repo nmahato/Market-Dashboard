@@ -23,7 +23,10 @@
         <form id="indicatorForm" class="indicator-panel">
           <div class="live-controls">
             <label for="symbolInput">Symbol</label>
-            <input id="symbolInput" name="symbol" type="text" value="NVDA" maxlength="10">
+            <div class="stock-search">
+              <input id="symbolInput" name="symbol" type="text" value="NVDA" maxlength="40" autocomplete="off">
+              <div id="symbolSuggestions" class="stock-suggestions" hidden></div>
+            </div>
             <label for="intervalSelect">Interval</label>
             <select id="intervalSelect" name="interval">
               <option value="1m">1m</option>
@@ -113,6 +116,7 @@
         </table>
       </section>
     </main>
+    <script src="/stock-search.js"></script>
     <script src="/indicator.js"></script>
   </body>
 </html>

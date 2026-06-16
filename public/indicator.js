@@ -13,12 +13,14 @@ const fetchLive = document.getElementById("fetchLive");
 const autoRefresh = document.getElementById("autoRefresh");
 const indicatorChart = document.getElementById("indicatorChart");
 const chartRange = document.getElementById("chartRange");
+const symbolSuggestions = document.getElementById("symbolSuggestions");
 
 let latestResults = [];
 let liveRefreshTimer = null;
 let isLoadingLive = false;
 const liveRefreshMs = 60000;
 const queryParams = new URLSearchParams(window.location.search);
+let symbolSearch;
 
 const sampleCandles = [
   { time: "09:30", open: 100.1, high: 100.7, low: 99.9, close: 100.5, volume: 48000 },
@@ -333,7 +335,7 @@ function renderResults(results) {
 
 async function fetchLiveCandles() {
   if (isLoadingLive) return;
-  const symbol = symbolInput.value.trim().toUpperCase();
+  let symbol = symbolInput.value.trim().toUpperCase();
   const interval = intervalSelect.value;
   if (!symbol) {
     indicatorStatus.textContent = "Enter a symbol first.";
@@ -344,6 +346,10 @@ async function fetchLiveCandles() {
   fetchLive.disabled = true;
   indicatorStatus.textContent = `Loading live ${interval} candles for ${symbol}...`;
   try {
+    if (window.resolveStockSymbol) {
+      symbol = await window.resolveStockSymbol(symbol);
+      symbolInput.value = symbol;
+    }
     const response = await fetch(`/api/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}`, {
       cache: "no-store"
     });
@@ -396,6 +402,16 @@ autoRefresh.addEventListener("change", updateLiveRefresh);
     if (autoRefresh.checked) fetchLiveCandles();
   });
 });
+
+if (window.createStockSearch && symbolSuggestions) {
+  symbolSearch = window.createStockSearch({
+    input: symbolInput,
+    suggestions: symbolSuggestions,
+    onSelect: function () {
+      fetchLiveCandles();
+    }
+  });
+}
 
 loadSample.addEventListener("click", () => {
   candleInput.value = JSON.stringify(sampleCandles, null, 2);

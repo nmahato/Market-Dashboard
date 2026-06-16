@@ -14,6 +14,7 @@ const CANDLE_INTERVALS = new Set(["1m", "2m", "5m", "15m", "30m", "60m"]);
 let trackedSymbols = [...DEFAULT_SYMBOLS];
 let db;
 const averageVolumeCache = new Map();
+const symbolSearchCache = new Map();
 
 function initDatabase() {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -274,6 +275,38 @@ async function getCandles(symbol, interval = "1m") {
   };
 }
 
+async function searchSymbols(query) {
+  const normalizedQuery = String(query || "").trim();
+  if (normalizedQuery.length < 2) return [];
+
+  const cacheKey = normalizedQuery.toLowerCase();
+  const cached = symbolSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < AVG_VOLUME_CACHE_MS) {
+    return cached.data;
+  }
+
+  const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(normalizedQuery)}&quotesCount=8&newsCount=0`;
+  const json = await requestJson(url);
+  const quotes = Array.isArray(json.quotes) ? json.quotes : [];
+  const results = quotes
+    .filter((quote) => quote.symbol && quote.shortname)
+    .filter((quote) => !quote.quoteType || ["EQUITY", "ETF"].includes(quote.quoteType))
+    .map((quote) => ({
+      symbol: String(quote.symbol).toUpperCase(),
+      name: quote.shortname || quote.longname || quote.symbol,
+      exchange: quote.exchDisp || quote.exchange || "",
+      type: quote.quoteType || ""
+    }))
+    .filter((item, index, array) => array.findIndex((match) => match.symbol === item.symbol) === index)
+    .slice(0, 6);
+
+  symbolSearchCache.set(cacheKey, {
+    cachedAt: Date.now(),
+    data: results
+  });
+  return results;
+}
+
 function requestJson(url) {
   return new Promise((resolve, reject) => {
     const request = https.get(
@@ -380,6 +413,21 @@ const server = http.createServer((req, res) => {
           parsedUrl.searchParams.get("interval") || "1m"
         );
         sendJson(res, data);
+      } catch (error) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/search-symbols") {
+    (async () => {
+      try {
+        sendJson(res, {
+          query: parsedUrl.searchParams.get("q") || "",
+          results: await searchSymbols(parsedUrl.searchParams.get("q"))
+        });
       } catch (error) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: error.message }));
