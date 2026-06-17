@@ -15,6 +15,7 @@ let trackedSymbols = [...DEFAULT_SYMBOLS];
 let db;
 const averageVolumeCache = new Map();
 const symbolSearchCache = new Map();
+const newsCache = new Map();
 
 function initDatabase() {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -307,6 +308,69 @@ async function searchSymbols(query) {
   return results;
 }
 
+function normalizeNewsItem(item) {
+  if (!item || !item.title || !item.link) return null;
+  const publishedAt = Number.isFinite(item.providerPublishTime)
+    ? new Date(item.providerPublishTime * 1000).toISOString()
+    : null;
+  const thumbnail = item.thumbnail &&
+    Array.isArray(item.thumbnail.resolutions) &&
+    item.thumbnail.resolutions[0] &&
+    item.thumbnail.resolutions[0].url;
+
+  return {
+    title: item.title,
+    publisher: item.publisher || "",
+    link: item.link,
+    publishedAt,
+    summary: item.summary || "",
+    thumbnail: thumbnail || "",
+    relatedTickers: Array.isArray(item.relatedTickers) ? item.relatedTickers : []
+  };
+}
+
+async function getNews(query, symbols, limit = 24) {
+  const normalizedQuery = String(query || "").trim();
+  const normalizedSymbols = normalizeSymbols(symbols);
+  const terms = normalizedQuery
+    ? [normalizedQuery]
+    : normalizedSymbols.length
+      ? normalizedSymbols.slice(0, 8)
+      : ["stock market"];
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 24, 40));
+  const cacheKey = `${terms.join("|").toLowerCase()}::${normalizedLimit}`;
+  const cached = newsCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < 60 * 1000) {
+    return cached.data;
+  }
+
+  const settled = await Promise.allSettled(terms.map(async (term) => {
+    const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(term)}&quotesCount=0&newsCount=${Math.min(normalizedLimit, 20)}`;
+    const json = await requestJson(url);
+    return Array.isArray(json.news) ? json.news : [];
+  }));
+
+  const articles = settled
+    .flatMap((result) => result.status === "fulfilled" ? result.value : [])
+    .map(normalizeNewsItem)
+    .filter(Boolean)
+    .filter((item, index, array) => array.findIndex((match) => match.link === item.link) === index)
+    .sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0))
+    .slice(0, normalizedLimit);
+
+  const data = {
+    query: normalizedQuery,
+    symbols: normalizedSymbols,
+    updatedAt: new Date().toISOString(),
+    articles
+  };
+  newsCache.set(cacheKey, {
+    cachedAt: Date.now(),
+    data
+  });
+  return data;
+}
+
 function requestJson(url) {
   return new Promise((resolve, reject) => {
     const request = https.get(
@@ -428,6 +492,25 @@ const server = http.createServer((req, res) => {
           query: parsedUrl.searchParams.get("q") || "",
           results: await searchSymbols(parsedUrl.searchParams.get("q"))
         });
+      } catch (error) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/news") {
+    (async () => {
+      try {
+        const requestedSymbols = parsedUrl.searchParams.has("symbols")
+          ? parsedUrl.searchParams.get("symbols")
+          : trackedSymbols.join(",");
+        sendJson(res, await getNews(
+          parsedUrl.searchParams.get("q"),
+          requestedSymbols,
+          parsedUrl.searchParams.get("limit")
+        ));
       } catch (error) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: error.message }));

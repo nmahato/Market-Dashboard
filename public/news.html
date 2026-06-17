@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Market News</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Market News</h1>
+          <p>Realtime headlines for the market and tracked symbols.</p>
+        </div>
+        <div class="topbar-actions">
+          <nav class="page-nav" aria-label="Dashboard pages">
+            <a href="/">RSI Watch</a>
+            <a href="/indicator.html">VWAP Signals</a>
+            <a href="/news.html" aria-current="page">News</a>
+          </nav>
+          <div class="status-panel">
+            <span id="newsDot" class="dot"></span>
+            <span id="newsStatus">Starting</span>
+            <strong id="newsCountdown">--</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="news-controls">
+        <form id="newsForm" class="news-form">
+          <label for="newsQuery">Search news</label>
+          <input id="newsQuery" name="query" type="text" placeholder="e.g. Nvidia, Fed, semiconductors">
+          <button type="submit">Search</button>
+          <button id="clearNews" type="button" class="secondary-btn">Reset</button>
+          <label class="toggle-control" for="watchlistNews">
+            <input id="watchlistNews" type="checkbox" checked>
+            Watchlist
+          </label>
+        </form>
+        <p id="newsHelper" class="helper-text">Showing latest market and watchlist headlines.</p>
+      </section>
+
+      <section class="news-summary" aria-label="News summary">
+        <div>
+          <span>Headlines</span>
+          <strong id="newsCount">0</strong>
+        </div>
+        <div>
+          <span>Updated</span>
+          <strong id="newsUpdated">--</strong>
+        </div>
+      </section>
+
+      <section id="newsList" class="news-list" aria-live="polite">
+        <p class="loading">Loading realtime news...</p>
+      </section>
+    </main>
+    <script src="/news.js"></script>
+  </body>
+</html>

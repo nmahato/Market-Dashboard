@@ -14,6 +14,10 @@ const autoRefresh = document.getElementById("autoRefresh");
 const indicatorChart = document.getElementById("indicatorChart");
 const chartRange = document.getElementById("chartRange");
 const symbolSuggestions = document.getElementById("symbolSuggestions");
+const chartPanel = document.querySelector(".chart-panel");
+const chartStyle = document.getElementById("chartStyle");
+const expandChart = document.getElementById("expandChart");
+const resetChart = document.getElementById("resetChart");
 
 let latestResults = [];
 let liveRefreshTimer = null;
@@ -21,6 +25,7 @@ let isLoadingLive = false;
 const liveRefreshMs = 60000;
 const queryParams = new URLSearchParams(window.location.search);
 let symbolSearch;
+let selectedSymbolName = "";
 
 const sampleCandles = [
   { time: "09:30", open: 100.1, high: 100.7, low: 99.9, close: 100.5, volume: 48000 },
@@ -214,6 +219,13 @@ function pointsFor(values, xForIndex, yForValue) {
     .join(" ");
 }
 
+function lineLabel(label, value, x, y, className) {
+  if (!Number.isFinite(value)) return "";
+  return `
+    <text class="line-label ${className}" x="${x.toFixed(2)}" y="${y.toFixed(2)}">${escapeHtml(label)}</text>
+  `;
+}
+
 function renderSignalChart(results) {
   if (!Array.isArray(results) || results.length < 2) {
     indicatorChart.innerHTML = "<p>No candle data calculated yet.</p>";
@@ -244,6 +256,17 @@ function renderSignalChart(results) {
   const vwapPoints = pointsFor(results.map((item) => item.vwap), xForIndex, yForValue);
   const ema9Points = pointsFor(results.map((item) => item.ema9), xForIndex, yForValue);
   const ema21Points = pointsFor(results.map((item) => item.ema21), xForIndex, yForValue);
+  const mode = chartStyle ? chartStyle.value : "candles";
+  const showCandles = mode === "candles" || mode === "both";
+  const showCloseLine = mode === "line" || mode === "both";
+  const lastIndex = results.length - 1;
+  const labelX = Math.min(width - padding.right + 8, xForIndex(lastIndex) + 10);
+  const labelData = [
+    ["Close", results[lastIndex].close, "price-label"],
+    ["VWAP", results[lastIndex].vwap, "vwap-label"],
+    ["EMA9", results[lastIndex].ema9, "ema9-label"],
+    ["EMA21", results[lastIndex].ema21, "ema21-label"]
+  ];
 
   const candleMarkup = results.map((item, index) => {
     const x = xForIndex(index);
@@ -283,6 +306,11 @@ function renderSignalChart(results) {
 
   const firstTime = formatTime(results[0].time);
   const lastTime = formatTime(results[results.length - 1].time);
+  const lineLabels = labelData.map(([label, value, className], index) => {
+    const y = yForValue(value) + (index - 1.5) * 10;
+    return lineLabel(label, value, labelX, y, className);
+  }).join("");
+
   chartRange.textContent = `${results.length} candles from ${firstTime} to ${lastTime}.`;
   indicatorChart.innerHTML = `
     <svg class="signal-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Candlestick chart with VWAP and EMA overlays">
@@ -290,11 +318,12 @@ function renderSignalChart(results) {
       ${gridMarkup}
       <text class="chart-axis" x="${padding.left}" y="${height - 12}">${escapeHtml(firstTime)}</text>
       <text class="chart-axis" x="${width - padding.right}" y="${height - 12}" text-anchor="end">${escapeHtml(lastTime)}</text>
-      ${candleMarkup}
-      <polyline class="price-line" points="${closePoints}"></polyline>
+      ${showCandles ? candleMarkup : ""}
+      ${showCloseLine ? `<polyline class="price-line" points="${closePoints}"></polyline>` : ""}
       <polyline class="vwap-line" points="${vwapPoints}"></polyline>
       <polyline class="ema9-line" points="${ema9Points}"></polyline>
       <polyline class="ema21-line" points="${ema21Points}"></polyline>
+      ${lineLabels}
       ${markerMarkup}
     </svg>
   `;
@@ -412,9 +441,37 @@ if (window.createStockSearch && symbolSuggestions) {
   symbolSearch = window.createStockSearch({
     input: symbolInput,
     suggestions: symbolSuggestions,
-    onSelect: function () {
+    onSelect: function (item) {
+      selectedSymbolName = item && item.name ? item.name : "";
+      if (selectedSymbolName) {
+        indicatorStatus.textContent = `Selected ${item.symbol}: ${selectedSymbolName}`;
+      }
       fetchLiveCandles();
     }
+  });
+}
+
+if (chartStyle) {
+  chartStyle.addEventListener("change", () => {
+    renderSignalChart(latestResults);
+  });
+}
+
+if (expandChart && chartPanel) {
+  expandChart.addEventListener("click", () => {
+    chartPanel.classList.toggle("expanded");
+    expandChart.textContent = chartPanel.classList.contains("expanded") ? "Collapse" : "Expand";
+    renderSignalChart(latestResults);
+  });
+}
+
+if (resetChart) {
+  resetChart.addEventListener("click", () => {
+    if (chartStyle) chartStyle.value = "candles";
+    if (chartPanel) chartPanel.classList.remove("expanded");
+    if (expandChart) expandChart.textContent = "Expand";
+    indicatorChart.scrollLeft = 0;
+    renderSignalChart(latestResults);
   });
 }
 

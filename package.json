@@ -6,7 +6,7 @@
     "sqlite3": "^5.1.7"
   },
   "scripts": {
-    "start": "node server.js",
+    "start": "node --use-system-ca server.js",
     "build": "node --check server.js"
   }
 }

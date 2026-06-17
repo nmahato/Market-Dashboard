@@ -16,6 +16,7 @@
         <nav class="page-nav" aria-label="Dashboard pages">
           <a href="/">RSI Watch</a>
           <a href="/indicator.html" aria-current="page">VWAP Signals</a>
+          <a href="/news.html">News</a>
         </nav>
       </header>
 
@@ -24,7 +25,7 @@
           <div class="live-controls">
             <label for="symbolInput">Symbol</label>
             <div class="stock-search">
-              <input id="symbolInput" name="symbol" type="text" value="NVDA" maxlength="40" autocomplete="off">
+              <input id="symbolInput" name="symbol" type="text" value="NVDA" maxlength="80" autocomplete="off" placeholder="Search by symbol or company name">
               <div id="symbolSuggestions" class="stock-suggestions" hidden></div>
             </div>
             <label for="intervalSelect">Interval</label>
@@ -74,13 +75,23 @@
             <h2>Price, VWAP, and EMAs</h2>
             <p id="chartRange">No chart data yet.</p>
           </div>
-          <div class="chart-legend" aria-label="Chart legend">
-            <span><i class="legend-price"></i>Price</span>
-            <span><i class="legend-vwap"></i>VWAP</span>
-            <span><i class="legend-ema9"></i>EMA9</span>
-            <span><i class="legend-ema21"></i>EMA21</span>
-            <span><i class="legend-buy"></i>Buy</span>
-            <span><i class="legend-sell"></i>Sell</span>
+          <div class="chart-tools">
+            <label for="chartStyle">Chart</label>
+            <select id="chartStyle">
+              <option value="candles">Candles</option>
+              <option value="line">Line</option>
+              <option value="both">Candles + Lines</option>
+            </select>
+            <button id="expandChart" type="button" class="secondary-btn">Expand</button>
+            <button id="resetChart" type="button" class="secondary-btn">Reset</button>
+            <div class="chart-legend" aria-label="Chart legend">
+              <span><i class="legend-price"></i>Close</span>
+              <span><i class="legend-vwap"></i>VWAP</span>
+              <span><i class="legend-ema9"></i>EMA9</span>
+              <span><i class="legend-ema21"></i>EMA21</span>
+              <span><i class="legend-buy"></i>Buy</span>
+              <span><i class="legend-sell"></i>Sell</span>
+            </div>
           </div>
         </div>
         <div id="indicatorChart" class="indicator-chart">
