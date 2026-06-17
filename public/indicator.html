@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>VWAP Signal Export</title>
+    <title>Stock Signal</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1>VWAP Signal Export</h1>
+          <h1>Stock Signal</h1>
           <p>Calculate VWAP, EMA9, EMA21, buy and sell signals from candle data.</p>
         </div>
         <nav class="page-nav" aria-label="Dashboard pages">
@@ -38,8 +38,9 @@
               <option value="60m">60m</option>
             </select>
             <button id="fetchLive" type="button">Live</button>
+            <button id="stockNews" type="button" class="secondary-btn">News</button>
             <label class="toggle-control" for="autoRefresh">
-              <input id="autoRefresh" type="checkbox">
+              <input id="autoRefresh" type="checkbox" checked="true">
               Auto
             </label>
           </div>

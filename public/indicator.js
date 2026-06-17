@@ -10,6 +10,7 @@ const exportJson = document.getElementById("exportJson");
 const symbolInput = document.getElementById("symbolInput");
 const intervalSelect = document.getElementById("intervalSelect");
 const fetchLive = document.getElementById("fetchLive");
+const stockNews = document.getElementById("stockNews");
 const autoRefresh = document.getElementById("autoRefresh");
 const indicatorChart = document.getElementById("indicatorChart");
 const chartRange = document.getElementById("chartRange");
@@ -428,6 +429,28 @@ indicatorForm.addEventListener("submit", (event) => {
 });
 
 fetchLive.addEventListener("click", fetchLiveCandles);
+
+if (stockNews) {
+  stockNews.addEventListener("click", async () => {
+    let symbol = symbolInput.value.trim().toUpperCase();
+    if (!symbol) {
+      indicatorStatus.textContent = "Enter a symbol first.";
+      return;
+    }
+
+    if (window.resolveStockSymbol) {
+      try {
+        symbol = await window.resolveStockSymbol(symbol);
+        symbolInput.value = symbol;
+      } catch (error) {
+        indicatorStatus.textContent = error.message;
+        return;
+      }
+    }
+
+    window.location.href = `/news.html?q=${encodeURIComponent(symbol)}`;
+  });
+}
 
 autoRefresh.addEventListener("change", updateLiveRefresh);
 

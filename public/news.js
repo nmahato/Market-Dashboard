@@ -15,6 +15,7 @@ let countdown = refreshSeconds;
 let countdownTimer;
 let refreshTimer;
 let isLoading = false;
+const queryParams = new URLSearchParams(window.location.search);
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -149,6 +150,12 @@ watchlistNews.addEventListener("change", () => {
   countdown = refreshSeconds;
   loadNews();
 });
+
+const initialQuery = queryParams.get("q") || queryParams.get("symbol");
+if (initialQuery) {
+  newsQuery.value = initialQuery.trim();
+  watchlistNews.checked = false;
+}
 
 startTimers();
 loadNews();
