@@ -302,6 +302,11 @@ function renderSignalChart(results) {
 
 function renderResults(results) {
   latestResults = results;
+  const tableResults = [...results].sort((a, b) => {
+    const first = Date.parse(a.time);
+    const second = Date.parse(b.time);
+    return (Number.isFinite(second) ? second : 0) - (Number.isFinite(first) ? first : 0);
+  });
   rowCount.textContent = results.length;
   buyCount.textContent = results.filter((result) => result.buySignal).length;
   sellCount.textContent = results.filter((result) => result.sellSignal).length;
@@ -313,7 +318,7 @@ function renderResults(results) {
     return;
   }
 
-  indicatorRows.innerHTML = results.map((result) => `
+  indicatorRows.innerHTML = tableResults.map((result) => `
     <tr class="${result.buySignal ? "crossover-row" : ""}">
       <td>${escapeHtml(formatTime(result.time))}</td>
       <td>${formatNumber(result.open)}</td>
