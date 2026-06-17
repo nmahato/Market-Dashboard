@@ -4,12 +4,12 @@ const indicatorStatus = document.getElementById("indicatorStatus");
 const rowCount = document.getElementById("rowCount");
 const buyCount = document.getElementById("buyCount");
 const sellCount = document.getElementById("sellCount");
-const exportJson = document.getElementById("exportJson");
 const symbolInput = document.getElementById("symbolInput");
 const intervalSelect = document.getElementById("intervalSelect");
 const fetchLive = document.getElementById("fetchLive");
 const stockNews = document.getElementById("stockNews");
-const autoRefresh = document.getElementById("autoRefresh");
+const stockNewsStatus = document.getElementById("stockNewsStatus");
+const stockNewsList = document.getElementById("stockNewsList");
 const indicatorChart = document.getElementById("indicatorChart");
 const chartRange = document.getElementById("chartRange");
 const symbolSuggestions = document.getElementById("symbolSuggestions");
@@ -19,9 +19,8 @@ const expandChart = document.getElementById("expandChart");
 const resetChart = document.getElementById("resetChart");
 
 let latestResults = [];
-let liveRefreshTimer = null;
 let isLoadingLive = false;
-const liveRefreshMs = 60000;
+let isLoadingNews = false;
 const queryParams = new URLSearchParams(window.location.search);
 let symbolSearch;
 let selectedSymbolName = "";
@@ -192,6 +191,18 @@ function formatTime(value) {
   }).format(parsed);
 }
 
+function timeAgo(value) {
+  if (!value) return "Unknown time";
+  const elapsed = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(elapsed)) return "Unknown time";
+  const minutes = Math.max(0, Math.floor(elapsed / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 function signalLabel(result) {
   if (result.buySignal) return '<span class="badge BUY_SIGNAL">BUY</span>';
   if (result.sellSignal) return '<span class="badge ERROR">SELL</span>';
@@ -325,7 +336,6 @@ function renderResults(results) {
   rowCount.textContent = results.length;
   buyCount.textContent = results.filter((result) => result.buySignal).length;
   sellCount.textContent = results.filter((result) => result.sellSignal).length;
-  exportJson.disabled = !results.length;
   renderSignalChart(results);
 
   if (!results.length) {
@@ -379,23 +389,12 @@ async function fetchLiveCandles() {
     const service = new TradingIndicatorService();
     renderResults(service.calculate(payload.candles));
     indicatorStatus.textContent = `Live ${payload.symbol} ${payload.interval}: ${payload.candles.length} candles, updated ${formatTime(payload.updatedAt)}.`;
+    loadStockNews(symbol);
   } catch (error) {
     indicatorStatus.textContent = error.message;
   } finally {
     isLoadingLive = false;
     fetchLive.disabled = false;
-  }
-}
-
-function updateLiveRefresh() {
-  if (liveRefreshTimer) {
-    clearInterval(liveRefreshTimer);
-    liveRefreshTimer = null;
-  }
-
-  if (autoRefresh.checked) {
-    fetchLiveCandles();
-    liveRefreshTimer = setInterval(fetchLiveCandles, liveRefreshMs);
   }
 }
 
@@ -406,33 +405,86 @@ indicatorForm.addEventListener("submit", (event) => {
 
 fetchLive.addEventListener("click", fetchLiveCandles);
 
+async function resolveCurrentSymbol() {
+  let symbol = symbolInput.value.trim().toUpperCase();
+  if (!symbol) throw new Error("Enter a symbol first.");
+  if (window.resolveStockSymbol) {
+    symbol = await window.resolveStockSymbol(symbol);
+    symbolInput.value = symbol;
+  }
+  return symbol;
+}
+
+function renderStockNews(payload) {
+  const articles = Array.isArray(payload.articles) ? payload.articles : [];
+  const query = payload.query || symbolInput.value.trim().toUpperCase();
+  stockNewsStatus.textContent = articles.length
+    ? `${articles.length} current headlines for ${query}.`
+    : `No current headlines found for ${query}.`;
+
+  if (!articles.length) {
+    stockNewsList.innerHTML = '<p class="loading">No headlines found.</p>';
+    return;
+  }
+
+  stockNewsList.innerHTML = articles.slice(0, 8).map((article) => {
+    const tickers = Array.isArray(article.relatedTickers) && article.relatedTickers.length
+      ? `<div class="news-tickers">${article.relatedTickers.slice(0, 6).map((ticker) => `<span>${escapeHtml(ticker)}</span>`).join("")}</div>`
+      : "";
+    const thumbnail = article.thumbnail
+      ? `<img src="${escapeHtml(article.thumbnail)}" alt="">`
+      : '<div class="news-thumb-placeholder"></div>';
+
+    return `
+      <article class="news-card">
+        <a href="${escapeHtml(article.link)}" target="_blank" rel="noreferrer">
+          ${thumbnail}
+          <div>
+            <div class="news-meta">
+              <span>${escapeHtml(article.publisher || "Market news")}</span>
+              <span>${escapeHtml(timeAgo(article.publishedAt))}</span>
+            </div>
+            <h2>${escapeHtml(article.title)}</h2>
+            ${article.summary ? `<p>${escapeHtml(article.summary)}</p>` : ""}
+            ${tickers}
+          </div>
+        </a>
+      </article>
+    `;
+  }).join("");
+}
+
+async function loadStockNews(symbolValue) {
+  if (isLoadingNews || !stockNewsList || !stockNewsStatus) return;
+  isLoadingNews = true;
+  if (stockNews) stockNews.disabled = true;
+  try {
+    const symbol = symbolValue || await resolveCurrentSymbol();
+    stockNewsStatus.textContent = `Loading current news for ${symbol}...`;
+    const response = await fetch(`/api/news?q=${encodeURIComponent(symbol)}&symbols=&limit=8`, {
+      cache: "no-store"
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    renderStockNews(payload);
+  } catch (error) {
+    stockNewsStatus.textContent = error.message;
+    stockNewsList.innerHTML = '<p class="loading">Unable to load current news.</p>';
+  } finally {
+    isLoadingNews = false;
+    if (stockNews) stockNews.disabled = false;
+  }
+}
+
 if (stockNews) {
-  stockNews.addEventListener("click", async () => {
-    let symbol = symbolInput.value.trim().toUpperCase();
-    if (!symbol) {
-      indicatorStatus.textContent = "Enter a symbol first.";
-      return;
-    }
-
-    if (window.resolveStockSymbol) {
-      try {
-        symbol = await window.resolveStockSymbol(symbol);
-        symbolInput.value = symbol;
-      } catch (error) {
-        indicatorStatus.textContent = error.message;
-        return;
-      }
-    }
-
-    window.location.href = `/news.html?q=${encodeURIComponent(symbol)}`;
+  stockNews.addEventListener("click", () => {
+    loadStockNews();
   });
 }
 
-autoRefresh.addEventListener("change", updateLiveRefresh);
-
 [symbolInput, intervalSelect].forEach((control) => {
   control.addEventListener("change", () => {
-    if (autoRefresh.checked) fetchLiveCandles();
+    fetchLiveCandles();
   });
 });
 
@@ -474,21 +526,9 @@ if (resetChart) {
   });
 }
 
-exportJson.addEventListener("click", () => {
-  const payload = JSON.stringify(latestResults, null, 2);
-  const blob = new Blob([payload], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "signal-results.json";
-  link.click();
-  URL.revokeObjectURL(url);
-});
-
 function applyUrlParams() {
   const symbol = queryParams.get("symbol");
   const interval = queryParams.get("interval");
-  const shouldLoadLive = queryParams.get("live") === "1";
 
   if (symbol) {
     symbolInput.value = symbol.trim().toUpperCase();
@@ -498,9 +538,7 @@ function applyUrlParams() {
     intervalSelect.value = interval;
   }
 
-  if (shouldLoadLive) {
-    fetchLiveCandles();
-  }
+  fetchLiveCandles();
 }
 
 applyUrlParams();

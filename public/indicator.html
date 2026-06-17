@@ -39,14 +39,9 @@
               <option value="60m">60m</option>
             </select>
             <button id="fetchLive" type="button">Live</button>
-            <button id="stockNews" type="button" class="secondary-btn">News</button>
-            <label class="toggle-control" for="autoRefresh">
-              <input id="autoRefresh" type="checkbox" checked="true">
-              Auto
-            </label>
           </div>
           <div class="indicator-actions">
-            <button id="exportJson" type="button" class="secondary-btn" disabled>Export JSON</button>
+            <button id="stockNews" type="button" class="secondary-btn">News</button>
           </div>
           <p id="indicatorStatus" class="helper-text">Load live candles for a symbol to calculate signals.</p>
         </form>
@@ -123,6 +118,18 @@
             </tr>
           </tbody>
         </table>
+      </section>
+
+      <section class="chart-panel" aria-label="Stock news">
+        <div class="chart-header">
+          <div>
+            <h2>Current News</h2>
+            <p id="stockNewsStatus">News will load for the selected symbol.</p>
+          </div>
+        </div>
+        <div id="stockNewsList" class="news-list">
+          <p class="loading">No news loaded yet.</p>
+        </div>
       </section>
     </main>
     <script src="/stock-search.js"></script>
