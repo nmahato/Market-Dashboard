@@ -1,5 +1,5 @@
 {
-  "name": "market-rsi-dashboard",
+  "name": "market-dashboard",
   "version": "1.0.0",
   "private": true,
   "dependencies": {

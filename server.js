@@ -474,6 +474,6 @@ const server = http.createServer((req, res) => {
 initDatabase();
 
 server.listen(PORT, () => {
-  console.log(`Market RSI dashboard running at http://localhost:${PORT}`);
+  console.log(`Market Dashboard running at http://localhost:${PORT}`);
   console.log(`Writing market snapshots to ${DB_PATH}`);
 });

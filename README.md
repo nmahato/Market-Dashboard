@@ -1,4 +1,4 @@
-# Market RSI Dashboard
+# Market Dashboard
 
 Local real-time dashboard for monitoring a top-10 stock watchlist with 14-period RSI.
 
