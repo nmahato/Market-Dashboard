@@ -17,11 +17,52 @@ http://localhost:4177
 ## Signals
 
 - `BUY SIGNAL`: RSI crossed back above 30 after being below 30.
+- `SELL SIGNAL`: RSI crossed back below 70 after being extended.
 - `OVERSOLD`: RSI is below 30.
 - `EXTENDED`: RSI is above 70.
 - `WATCH`: no active signal.
 
 The dashboard refreshes every 5 seconds.
+
+## Daily top 10 watchlist
+
+Each day the server refreshes the RSI Watch list from Yahoo Finance `most_actives` and tracks the top 10 symbols of the day. Manually added symbols are kept in addition to that daily top 10 until the server restarts. Check or force-refresh the list at `/api/top-stocks`; use `/api/top-stocks?refresh=1` to refresh immediately.
+
+## Crossover notifications
+
+The server can send text and email notifications when `BUY SIGNAL` or `SELL SIGNAL` crossovers appear. Configure these as environment variables locally or in Render.
+
+Email uses SendGrid:
+
+```text
+SENDGRID_API_KEY=...
+NOTIFY_EMAIL_FROM=alerts@example.com
+NOTIFY_EMAIL_TO=you@example.com,another@example.com
+```
+
+Text messages use Twilio:
+
+```text
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_FROM=+15551234567
+NOTIFY_SMS_TO=+15557654321,+15559876543
+```
+
+Optional controls:
+
+```text
+NOTIFICATION_ENABLED=true
+NOTIFICATION_COOLDOWN_MS=900000
+NOTIFICATION_WEBHOOK_URL=https://example.com/market-alert-webhook
+ADMIN_TOKEN=choose-a-private-admin-token
+```
+
+Check notification setup at `/api/notifications`. Alerts are rate-limited per symbol and signal type by `NOTIFICATION_COOLDOWN_MS`.
+
+### WhatsApp groups
+
+Open `/admin.html` to add WhatsApp group notification webhooks. The group must have a bot or provider that gives you an HTTPS webhook URL; the dashboard posts crossover alert JSON to that URL. If `ADMIN_TOKEN` is set, enter that token on the Admin page before adding or disabling groups.
 
 ## SQLite snapshots
 

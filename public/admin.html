@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Admin</h1>
+          <p>Manage crossover notification channels.</p>
+        </div>
+        <div class="topbar-actions">
+          <nav class="page-nav" aria-label="Dashboard pages">
+            <a href="/">RSI Watch</a>
+            <a href="/indicator.html">Signals</a>
+            <a href="/news.html">News</a>
+            <a href="/admin.html" aria-current="page">Admin</a>
+          </nav>
+        </div>
+      </header>
+
+      <section class="admin-panel">
+        <form id="adminTokenForm" class="admin-form">
+          <label for="adminToken">Admin token</label>
+          <input id="adminToken" name="adminToken" type="password" autocomplete="current-password" placeholder="Required when ADMIN_TOKEN is set">
+          <button type="submit">Save</button>
+        </form>
+        <p id="adminStatus" class="helper-text">Loading notification settings.</p>
+      </section>
+
+      <section class="admin-panel">
+        <form id="whatsappGroupForm" class="admin-form">
+          <label for="groupName">WhatsApp group</label>
+          <input id="groupName" name="groupName" type="text" maxlength="80" placeholder="Trading alerts">
+          <label for="webhookUrl">Webhook URL</label>
+          <input id="webhookUrl" name="webhookUrl" type="url" placeholder="https://...">
+          <button type="submit">Add Group</button>
+        </form>
+        <p class="helper-text">Use the HTTPS webhook from your WhatsApp group bot or provider.</p>
+      </section>
+
+      <section class="admin-panel">
+        <div class="admin-heading">
+          <h2>WhatsApp Groups</h2>
+          <span id="groupCount">0 active</span>
+        </div>
+        <div id="whatsappGroups" class="admin-list">
+          <p class="loading">No groups loaded yet.</p>
+        </div>
+      </section>
+
+      <section class="admin-panel">
+        <div class="admin-heading">
+          <h2>Notification Status</h2>
+          <span id="notificationState">--</span>
+        </div>
+        <div id="notificationSummary" class="admin-list">
+          <p class="loading">Loading status...</p>
+        </div>
+      </section>
+    </main>
+    <script src="/admin.js"></script>
+  </body>
+</html>

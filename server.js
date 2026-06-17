@@ -11,11 +11,25 @@ const MAX_SYMBOLS = 50;
 const MAX_POST_BYTES = 4096;
 const AVG_VOLUME_CACHE_MS = 30 * 60 * 1000;
 const CANDLE_INTERVALS = new Set(["1m", "2m", "5m", "15m", "30m", "60m"]);
+const NOTIFICATION_COOLDOWN_MS = Math.max(60_000, Number(process.env.NOTIFICATION_COOLDOWN_MS) || 15 * 60 * 1000);
+const TOP_STOCK_COUNT = 10;
+const TOP_STOCK_REFRESH_MS = 24 * 60 * 60 * 1000;
 let trackedSymbols = [...DEFAULT_SYMBOLS];
+let manualSymbols = [];
+let dailyTopStocks = {
+  date: null,
+  symbols: [...DEFAULT_SYMBOLS],
+  source: "Default watchlist",
+  updatedAt: null,
+  error: null
+};
 let db;
 const averageVolumeCache = new Map();
 const symbolSearchCache = new Map();
 const newsCache = new Map();
+const notificationCooldowns = new Map();
+const recentNotifications = [];
+let whatsappGroupCache = [];
 
 function initDatabase() {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -38,12 +52,29 @@ function initDatabase() {
         previous_rsi REAL,
         state TEXT NOT NULL,
         crossed_back_above_30 INTEGER NOT NULL DEFAULT 0,
+        crossed_back_below_70 INTEGER NOT NULL DEFAULT 0,
         error TEXT,
         observed_at TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    db.run("ALTER TABLE market_snapshots ADD COLUMN crossed_back_below_70 INTEGER NOT NULL DEFAULT 0", (error) => {
+      if (error && !/duplicate column/i.test(error.message)) {
+        console.error("Failed to add sell crossover column:", error.message);
+      }
+    });
     db.run("CREATE INDEX IF NOT EXISTS idx_market_snapshots_symbol_observed ON market_snapshots(symbol, observed_at)");
+    db.run(`
+      CREATE TABLE IF NOT EXISTS whatsapp_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        webhook_url TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `, () => {
+      refreshWhatsAppGroupCache();
+    });
   });
 }
 
@@ -55,11 +86,185 @@ function normalizeSymbols(input) {
     .filter((symbol, index, array) => array.indexOf(symbol) === index);
 }
 
+function parseList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function marketDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function syncTrackedSymbols() {
+  trackedSymbols = Array.from(new Set([
+    ...(dailyTopStocks.symbols.length ? dailyTopStocks.symbols : DEFAULT_SYMBOLS),
+    ...manualSymbols
+  ])).slice(0, MAX_SYMBOLS);
+  return trackedSymbols;
+}
+
+function normalizeTopStockQuotes(quotes) {
+  return normalizeSymbols((quotes || [])
+    .filter((quote) => !quote.quoteType || ["EQUITY", "ETF"].includes(quote.quoteType))
+    .map((quote) => quote.symbol))
+    .slice(0, TOP_STOCK_COUNT);
+}
+
+async function refreshDailyTopStocks(force = false) {
+  const today = marketDateKey();
+  if (!force && dailyTopStocks.date === today && dailyTopStocks.symbols.length) {
+    syncTrackedSymbols();
+    return dailyTopStocks;
+  }
+
+  const url = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=${TOP_STOCK_COUNT}`;
+  try {
+    const json = await requestJson(url);
+    const result = json.finance && Array.isArray(json.finance.result) ? json.finance.result[0] : null;
+    const symbols = normalizeTopStockQuotes(result && result.quotes);
+    if (!symbols.length) throw new Error("No top stocks returned");
+
+    dailyTopStocks = {
+      date: today,
+      symbols,
+      source: "Yahoo Finance most active",
+      updatedAt: new Date().toISOString(),
+      error: null
+    };
+  } catch (error) {
+    dailyTopStocks = {
+      ...dailyTopStocks,
+      date: dailyTopStocks.date || today,
+      symbols: dailyTopStocks.symbols.length ? dailyTopStocks.symbols : [...DEFAULT_SYMBOLS],
+      updatedAt: dailyTopStocks.updatedAt || new Date().toISOString(),
+      error: error.message
+    };
+    console.warn(`Daily top stocks unavailable: ${error.message}`);
+  }
+
+  syncTrackedSymbols();
+  return dailyTopStocks;
+}
+
+function dbAll(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      resolve([]);
+      return;
+    }
+    db.all(sql, params, (error, rows) => {
+      if (error) reject(error);
+      else resolve(rows || []);
+    });
+  });
+}
+
+function dbRun(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      reject(new Error("Database is not ready"));
+      return;
+    }
+    db.run(sql, params, function onRun(error) {
+      if (error) reject(error);
+      else resolve({ id: this.lastID, changes: this.changes });
+    });
+  });
+}
+
+async function refreshWhatsAppGroupCache() {
+  try {
+    whatsappGroupCache = await dbAll(`
+      SELECT id, name, webhook_url AS webhookUrl, enabled, created_at AS createdAt
+      FROM whatsapp_groups
+      WHERE enabled = 1
+      ORDER BY name
+    `);
+  } catch (error) {
+    console.warn(`Failed to load WhatsApp groups: ${error.message}`);
+  }
+  return whatsappGroupCache;
+}
+
+async function getWhatsAppGroups(includeDisabled = false) {
+  const rows = await dbAll(`
+    SELECT id, name, webhook_url AS webhookUrl, enabled, created_at AS createdAt
+    FROM whatsapp_groups
+    ${includeDisabled ? "" : "WHERE enabled = 1"}
+    ORDER BY name
+  `);
+  if (!includeDisabled) whatsappGroupCache = rows;
+  return rows;
+}
+
+async function addWhatsAppGroup(name, webhookUrl) {
+  const normalizedName = String(name || "").trim().slice(0, 80);
+  const normalizedUrl = String(webhookUrl || "").trim();
+  if (!normalizedName) throw new Error("Group name is required");
+  if (!normalizedUrl) throw new Error("Webhook URL is required");
+  const parsed = new URL(normalizedUrl);
+  if (parsed.protocol !== "https:") throw new Error("Webhook URL must use HTTPS");
+
+  await dbRun(
+    "INSERT INTO whatsapp_groups (name, webhook_url, enabled) VALUES (?, ?, 1)",
+    [normalizedName, normalizedUrl]
+  );
+  return getWhatsAppGroups(true);
+}
+
+async function disableWhatsAppGroup(id) {
+  const groupId = Number(id);
+  if (!Number.isInteger(groupId) || groupId < 1) throw new Error("Valid group id is required");
+  await dbRun("UPDATE whatsapp_groups SET enabled = 0 WHERE id = ?", [groupId]);
+  return getWhatsAppGroups(true);
+}
+
+function notificationChannels() {
+  const channels = [];
+  if (process.env.SENDGRID_API_KEY && process.env.NOTIFY_EMAIL_FROM && parseList(process.env.NOTIFY_EMAIL_TO).length) {
+    channels.push("email");
+  }
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM && parseList(process.env.NOTIFY_SMS_TO).length) {
+    channels.push("sms");
+  }
+  if (process.env.NOTIFICATION_WEBHOOK_URL) {
+    channels.push("webhook");
+  }
+  if (whatsappGroupCache.length) {
+    channels.push("whatsapp");
+  }
+  return channels;
+}
+
+function notificationStatus() {
+  const channels = notificationChannels();
+  return {
+    enabled: process.env.NOTIFICATION_ENABLED !== "false" && channels.length > 0,
+    channels,
+    cooldownMs: NOTIFICATION_COOLDOWN_MS,
+    emailConfigured: channels.includes("email"),
+    smsConfigured: channels.includes("sms"),
+    webhookConfigured: channels.includes("webhook"),
+    whatsappConfigured: channels.includes("whatsapp"),
+    whatsappGroupCount: whatsappGroupCache.length,
+    recent: recentNotifications.slice(0, 20)
+  };
+}
+
 function addTrackedSymbols(input) {
   const newSymbols = normalizeSymbols(input);
   if (!newSymbols.length) return trackedSymbols;
-  trackedSymbols = Array.from(new Set([...trackedSymbols, ...newSymbols])).slice(0, MAX_SYMBOLS);
-  return trackedSymbols;
+  manualSymbols = Array.from(new Set([...manualSymbols, ...newSymbols])).slice(0, MAX_SYMBOLS);
+  return syncTrackedSymbols();
 }
 
 function saveMarketSnapshot(data, observedAt) {
@@ -77,9 +282,10 @@ function saveMarketSnapshot(data, observedAt) {
         previous_rsi,
         state,
         crossed_back_above_30,
+        crossed_back_below_70,
         error,
         observed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     data.forEach((item) => {
@@ -93,6 +299,7 @@ function saveMarketSnapshot(data, observedAt) {
         Number.isFinite(item.previousRsi) ? item.previousRsi : null,
         item.state || "ERROR",
         item.crossedBackAbove30 ? 1 : 0,
+        item.crossedBackBelow70 ? 1 : 0,
         item.error || null,
         observedAt
       );
@@ -217,6 +424,16 @@ async function getSymbolData(symbol) {
   const rsi = series[series.length - 1];
   const previousRsi = series[series.length - 2];
   const crossedBackAbove30 = previousRsi <= 30 && rsi > 30;
+  const crossedBackBelow70 = previousRsi >= 70 && rsi < 70;
+  const state = crossedBackAbove30
+    ? "BUY SIGNAL"
+    : crossedBackBelow70
+      ? "SELL SIGNAL"
+      : rsi < 30
+        ? "OVERSOLD"
+        : rsi > 70
+          ? "EXTENDED"
+          : "WATCH";
 
   return {
     symbol,
@@ -228,7 +445,8 @@ async function getSymbolData(symbol) {
     rsi: Number(rsi.toFixed(2)),
     previousRsi: Number(previousRsi.toFixed(2)),
     crossedBackAbove30,
-    state: crossedBackAbove30 ? "BUY SIGNAL" : rsi < 30 ? "OVERSOLD" : rsi > 70 ? "EXTENDED" : "WATCH",
+    crossedBackBelow70,
+    state,
     updatedAt: new Date().toISOString()
   };
 }
@@ -408,7 +626,197 @@ function requestJson(url) {
   });
 }
 
+function requestBody(url, options, body) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const transport = parsed.protocol === "http:" ? http : https;
+    const request = transport.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || undefined,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: options.method || "POST",
+        headers: {
+          "Content-Length": Buffer.byteLength(body),
+          ...options.headers
+        }
+      },
+      (response) => {
+        let responseBody = "";
+        response.on("data", (chunk) => {
+          responseBody += chunk;
+        });
+        response.on("end", () => {
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            reject(new Error(`${options.label || "Notification"} request failed with ${response.statusCode}: ${responseBody.slice(0, 240)}`));
+            return;
+          }
+          resolve(responseBody);
+        });
+      }
+    );
+
+    request.setTimeout(8000, () => {
+      request.destroy(new Error(`${options.label || "Notification"} request timed out`));
+    });
+    request.on("error", reject);
+    request.write(body);
+    request.end();
+  });
+}
+
+function requestJsonPost(url, headers, payload, label) {
+  return requestBody(url, {
+    label,
+    headers: {
+      "Content-Type": "application/json",
+      ...headers
+    }
+  }, JSON.stringify(payload));
+}
+
+function buildCrossoverAlert(item, observedAt) {
+  const side = item.state === "SELL SIGNAL" ? "SELL" : "BUY";
+  const direction = side === "BUY" ? "crossed above 30" : "crossed below 70";
+  const subject = `${side} RSI crossover: ${item.symbol}`;
+  const message = [
+    `${subject}`,
+    `${item.symbol} RSI ${direction}.`,
+    `RSI: ${Number.isFinite(item.rsi) ? item.rsi.toFixed(2) : "--"} (previous ${Number.isFinite(item.previousRsi) ? item.previousRsi.toFixed(2) : "--"})`,
+    `Price: ${Number.isFinite(item.price) ? `$${item.price.toFixed(2)}` : "--"}`,
+    `Change today: ${Number.isFinite(item.todayChangePercent) ? `${item.todayChangePercent.toFixed(2)}%` : "--"}`,
+    `Time: ${observedAt}`
+  ].join("\n");
+
+  return {
+    symbol: item.symbol,
+    side,
+    state: item.state,
+    subject,
+    message,
+    observedAt,
+    rsi: item.rsi,
+    previousRsi: item.previousRsi,
+    price: item.price,
+    todayChangePercent: item.todayChangePercent
+  };
+}
+
+function rememberNotification(entry) {
+  recentNotifications.unshift({
+    ...entry,
+    createdAt: new Date().toISOString()
+  });
+  recentNotifications.splice(25);
+}
+
+function shouldSendCrossoverAlert(item) {
+  if (!item || !["BUY SIGNAL", "SELL SIGNAL"].includes(item.state)) return false;
+  const key = `${item.symbol}:${item.state}`;
+  const lastSentAt = notificationCooldowns.get(key) || 0;
+  if (Date.now() - lastSentAt < NOTIFICATION_COOLDOWN_MS) return false;
+  notificationCooldowns.set(key, Date.now());
+  return true;
+}
+
+async function sendEmailAlert(alert) {
+  const to = parseList(process.env.NOTIFY_EMAIL_TO).map((email) => ({ email }));
+  if (!process.env.SENDGRID_API_KEY || !process.env.NOTIFY_EMAIL_FROM || !to.length) return null;
+
+  await requestJsonPost("https://api.sendgrid.com/v3/mail/send", {
+    Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`
+  }, {
+    personalizations: [{ to }],
+    from: { email: process.env.NOTIFY_EMAIL_FROM },
+    subject: alert.subject,
+    content: [
+      { type: "text/plain", value: alert.message }
+    ]
+  }, "Email notification");
+  return "email";
+}
+
+async function sendSmsAlert(alert) {
+  const recipients = parseList(process.env.NOTIFY_SMS_TO);
+  if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_FROM || !recipients.length) return null;
+
+  const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`;
+  await Promise.all(recipients.map((recipient) => {
+    const body = new URLSearchParams({
+      From: process.env.TWILIO_FROM,
+      To: recipient,
+      Body: alert.message.slice(0, 1500)
+    }).toString();
+    return requestBody(url, {
+      label: "SMS notification",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    }, body);
+  }));
+  return "sms";
+}
+
+async function sendWebhookAlert(alert) {
+  if (!process.env.NOTIFICATION_WEBHOOK_URL) return null;
+  await requestJsonPost(process.env.NOTIFICATION_WEBHOOK_URL, {}, alert, "Webhook notification");
+  return "webhook";
+}
+
+async function sendWhatsAppGroupAlerts(alert, groups) {
+  if (!Array.isArray(groups) || !groups.length) return null;
+  await Promise.all(groups.map((group) => requestJsonPost(group.webhookUrl, {}, {
+    group: {
+      id: group.id,
+      name: group.name
+    },
+    text: alert.message,
+    alert
+  }, `WhatsApp group notification ${group.name}`)));
+  return "whatsapp";
+}
+
+async function notifyCrossovers(data, observedAt) {
+  const groups = await getWhatsAppGroups();
+  const status = notificationStatus();
+  if ((process.env.NOTIFICATION_ENABLED === "false" || !status.channels.length) || !Array.isArray(data)) return;
+
+  const alerts = data
+    .filter((item) => shouldSendCrossoverAlert(item))
+    .map((item) => buildCrossoverAlert(item, observedAt));
+
+  await Promise.all(alerts.map(async (alert) => {
+    const settled = await Promise.allSettled([
+      sendEmailAlert(alert),
+      sendSmsAlert(alert),
+      sendWebhookAlert(alert),
+      sendWhatsAppGroupAlerts(alert, groups)
+    ]);
+    const sentChannels = settled
+      .filter((result) => result.status === "fulfilled" && result.value)
+      .map((result) => result.value);
+    const errors = settled
+      .filter((result) => result.status === "rejected")
+      .map((result) => result.reason.message);
+
+    rememberNotification({
+      symbol: alert.symbol,
+      side: alert.side,
+      state: alert.state,
+      channels: sentChannels,
+      error: errors.join("; ") || null
+    });
+
+    if (errors.length) {
+      console.warn(`Notification failed for ${alert.symbol}: ${errors.join("; ")}`);
+    }
+  }));
+}
+
 async function getMarketData() {
+  await refreshDailyTopStocks();
   const settled = await Promise.allSettled(trackedSymbols.map(getSymbolData));
   return settled.map((result, index) => {
     if (result.status === "fulfilled") return result.value;
@@ -427,6 +835,43 @@ function sendJson(res, payload) {
     "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(payload));
+}
+
+function sendError(res, statusCode, message) {
+  res.writeHead(statusCode, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: message }));
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    let tooLarge = false;
+    req.on("data", (chunk) => {
+      if (tooLarge) return;
+      body += chunk;
+      if (body.length > MAX_POST_BYTES) {
+        tooLarge = true;
+      }
+    });
+    req.on("end", () => {
+      if (tooLarge) {
+        reject(new Error("Request body is too large"));
+        return;
+      }
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (error) {
+        reject(new Error("Request body must be valid JSON"));
+      }
+    });
+  });
+}
+
+function isAdminRequest(req, parsedUrl) {
+  if (!process.env.ADMIN_TOKEN) return true;
+  const headerToken = req.headers["x-admin-token"];
+  const queryToken = parsedUrl.searchParams.get("token");
+  return headerToken === process.env.ADMIN_TOKEN || queryToken === process.env.ADMIN_TOKEN;
 }
 
 function sendStatic(req, res) {
@@ -456,14 +901,93 @@ const server = http.createServer((req, res) => {
         const data = await getMarketData();
         const observedAt = new Date().toISOString();
         saveMarketSnapshot(data, observedAt);
+        notifyCrossovers(data, observedAt).catch((error) => {
+          console.warn(`Notification module failed: ${error.message}`);
+        });
         sendJson(res, {
           symbols: trackedSymbols,
+          manualSymbols,
+          topStocks: dailyTopStocks,
           updatedAt: observedAt,
           data
         });
       } catch (error) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: error.message }));
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/top-stocks") {
+    (async () => {
+      try {
+        const force = parsedUrl.searchParams.get("refresh") === "1";
+        sendJson(res, {
+          topStocks: await refreshDailyTopStocks(force),
+          symbols: trackedSymbols,
+          manualSymbols
+        });
+      } catch (error) {
+        sendError(res, 500, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/notifications") {
+    refreshWhatsAppGroupCache().finally(() => {
+      sendJson(res, notificationStatus());
+    });
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/admin/whatsapp-groups") {
+    if (!isAdminRequest(req, parsedUrl)) {
+      sendError(res, 401, "Admin token is required");
+      return;
+    }
+    (async () => {
+      try {
+        if (req.method === "GET") {
+          sendJson(res, {
+            protected: Boolean(process.env.ADMIN_TOKEN),
+            groups: await getWhatsAppGroups(true)
+          });
+          return;
+        }
+        if (req.method === "POST") {
+          const payload = await readJsonBody(req);
+          sendJson(res, {
+            groups: await addWhatsAppGroup(payload.name, payload.webhookUrl)
+          });
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname.startsWith("/api/admin/whatsapp-groups/")) {
+    if (!isAdminRequest(req, parsedUrl)) {
+      sendError(res, 401, "Admin token is required");
+      return;
+    }
+    (async () => {
+      try {
+        if (req.method !== "DELETE") {
+          sendError(res, 405, "Method not allowed");
+          return;
+        }
+        const id = parsedUrl.pathname.split("/").pop();
+        sendJson(res, {
+          groups: await disableWhatsAppGroup(id)
+        });
+      } catch (error) {
+        sendError(res, 400, error.message);
       }
     })();
     return;
@@ -555,8 +1079,17 @@ const server = http.createServer((req, res) => {
 });
 
 initDatabase();
+syncTrackedSymbols();
 
 server.listen(PORT, () => {
   console.log(`Market Dashboard running at http://localhost:${PORT}`);
   console.log(`Writing market snapshots to ${DB_PATH}`);
+  refreshDailyTopStocks(true).catch((error) => {
+    console.warn(`Initial daily top stock refresh failed: ${error.message}`);
+  });
+  setInterval(() => {
+    refreshDailyTopStocks(true).catch((error) => {
+      console.warn(`Scheduled daily top stock refresh failed: ${error.message}`);
+    });
+  }, TOP_STOCK_REFRESH_MS);
 });

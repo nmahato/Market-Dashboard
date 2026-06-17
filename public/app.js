@@ -2,9 +2,11 @@ const rows = document.getElementById("rows");
 const statusText = document.getElementById("statusText");
 const connectionDot = document.getElementById("connectionDot");
 const countdown = document.getElementById("countdown");
-const signalCount = document.getElementById("signalCount");
+const buySignalCount = document.getElementById("buySignalCount");
+const sellSignalCount = document.getElementById("sellSignalCount");
 const oversoldCount = document.getElementById("oversoldCount");
 const extendedCount = document.getElementById("extendedCount");
+const topStockCount = document.getElementById("topStockCount");
 const updatedAt = document.getElementById("updatedAt");
 const symbolForm = document.getElementById("symbolForm");
 const symbolInput = document.getElementById("symbolInput");
@@ -116,16 +118,27 @@ function render(data) {
   latestData = data;
   const items = [...(data.data || [])].sort(compareItems);
   const trackedSymbols = Array.isArray(data.symbols) ? data.symbols : [];
-  const signals = items.filter((item) => item.state === "BUY SIGNAL").length;
+  const topStocks = data.topStocks && Array.isArray(data.topStocks.symbols) ? data.topStocks : null;
+  const manualSymbols = Array.isArray(data.manualSymbols) ? data.manualSymbols : [];
+  const buySignals = items.filter((item) => item.state === "BUY SIGNAL").length;
+  const sellSignals = items.filter((item) => item.state === "SELL SIGNAL").length;
   const oversold = items.filter((item) => item.state === "OVERSOLD").length;
   const extended = items.filter((item) => item.state === "EXTENDED").length;
 
-  signalCount.textContent = signals;
+  buySignalCount.textContent = buySignals;
+  sellSignalCount.textContent = sellSignals;
   oversoldCount.textContent = oversold;
   extendedCount.textContent = extended;
+  topStockCount.textContent = topStocks ? topStocks.symbols.length : 0;
   updatedAt.textContent = formatTime(data.updatedAt);
   if (trackedSymbols.length) {
-    symbolStatus.textContent = `Tracking ${trackedSymbols.length} symbols: ${trackedSymbols.join(", ")}`;
+    const source = topStocks ? topStocks.source : "watchlist";
+    const topText = topStocks && topStocks.symbols.length
+      ? `Daily top ${topStocks.symbols.length}: ${topStocks.symbols.join(", ")}`
+      : `Tracking ${trackedSymbols.length} symbols: ${trackedSymbols.join(", ")}`;
+    const manualText = manualSymbols.length ? ` Manual additions: ${manualSymbols.join(", ")}.` : "";
+    const errorText = topStocks && topStocks.error ? ` Top list fallback: ${topStocks.error}.` : "";
+    symbolStatus.textContent = `${topText}. Source: ${source}.${manualText}${errorText}`;
   } else {
     symbolStatus.textContent = "No symbols are being tracked yet.";
   }
@@ -133,8 +146,16 @@ function render(data) {
   rows.innerHTML = items
     .map((item) => {
       const stateClass = String(item.state || "ERROR").replace(" ", "_");
-      const rowClass = item.crossedBackAbove30 ? "crossover-row" : "";
-      const signalLabel = item.crossedBackAbove30 ? "RSI CROSSOVER" : item.state || "ERROR";
+      const rowClass = item.crossedBackAbove30
+        ? "buy-signal-row"
+        : item.crossedBackBelow70
+          ? "sell-signal-row"
+          : "";
+      const signalLabel = item.crossedBackAbove30
+        ? "BUY RSI CROSS"
+        : item.crossedBackBelow70
+          ? "SELL RSI CROSS"
+          : item.state || "ERROR";
       const changeClass = Number.isFinite(item.todayChangePercent)
         ? (item.todayChangePercent >= 0 ? "positive" : "negative")
         : "neutral";

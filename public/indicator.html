@@ -17,6 +17,7 @@
           <a href="/">RSI Watch</a>
           <a href="/indicator.html" aria-current="page">VWAP Signals</a>
           <a href="/news.html">News</a>
+          <a href="/admin.html">Admin</a>
         </nav>
       </header>
 
@@ -44,14 +45,10 @@
               Auto
             </label>
           </div>
-          <label for="candleInput">Candles</label>
-          <textarea id="candleInput" spellcheck="false"></textarea>
           <div class="indicator-actions">
-            <button type="submit">Calculate</button>
-            <button id="loadSample" type="button" class="secondary-btn">Sample</button>
             <button id="exportJson" type="button" class="secondary-btn" disabled>Export JSON</button>
           </div>
-          <p id="indicatorStatus" class="helper-text">Paste JSON or CSV with time, open, high, low, close, volume.</p>
+          <p id="indicatorStatus" class="helper-text">Load live candles for a symbol to calculate signals.</p>
         </form>
 
         <section class="indicator-summary" aria-label="Signal summary">

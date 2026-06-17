@@ -1,11 +1,9 @@
-const candleInput = document.getElementById("candleInput");
 const indicatorForm = document.getElementById("indicatorForm");
 const indicatorRows = document.getElementById("indicatorRows");
 const indicatorStatus = document.getElementById("indicatorStatus");
 const rowCount = document.getElementById("rowCount");
 const buyCount = document.getElementById("buyCount");
 const sellCount = document.getElementById("sellCount");
-const loadSample = document.getElementById("loadSample");
 const exportJson = document.getElementById("exportJson");
 const symbolInput = document.getElementById("symbolInput");
 const intervalSelect = document.getElementById("intervalSelect");
@@ -27,19 +25,6 @@ const liveRefreshMs = 60000;
 const queryParams = new URLSearchParams(window.location.search);
 let symbolSearch;
 let selectedSymbolName = "";
-
-const sampleCandles = [
-  { time: "09:30", open: 100.1, high: 100.7, low: 99.9, close: 100.5, volume: 48000 },
-  { time: "09:35", open: 100.5, high: 101.2, low: 100.4, close: 101, volume: 52500 },
-  { time: "09:40", open: 101, high: 101.4, low: 100.6, close: 100.8, volume: 41000 },
-  { time: "09:45", open: 100.8, high: 101.8, low: 100.7, close: 101.6, volume: 69000 },
-  { time: "09:50", open: 101.6, high: 102.2, low: 101.2, close: 102, volume: 73000 },
-  { time: "09:55", open: 102, high: 102.1, low: 101.1, close: 101.2, volume: 38000 },
-  { time: "10:00", open: 101.2, high: 101.5, low: 100.3, close: 100.4, volume: 76000 },
-  { time: "10:05", open: 100.4, high: 100.6, low: 99.8, close: 99.9, volume: 82000 },
-  { time: "10:10", open: 99.9, high: 100.8, low: 99.7, close: 100.7, volume: 91000 },
-  { time: "10:15", open: 100.7, high: 101.9, low: 100.6, close: 101.8, volume: 105000 }
-];
 
 class TradingIndicatorService {
   calculate(candles) {
@@ -391,7 +376,6 @@ async function fetchLiveCandles() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
 
-    candleInput.value = JSON.stringify(payload.candles, null, 2);
     const service = new TradingIndicatorService();
     renderResults(service.calculate(payload.candles));
     indicatorStatus.textContent = `Live ${payload.symbol} ${payload.interval}: ${payload.candles.length} candles, updated ${formatTime(payload.updatedAt)}.`;
@@ -417,15 +401,7 @@ function updateLiveRefresh() {
 
 indicatorForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  try {
-    const candles = parseCandles(candleInput.value);
-    const service = new TradingIndicatorService();
-    renderResults(service.calculate(candles));
-    indicatorStatus.textContent = `Calculated ${candles.length} candles.`;
-  } catch (error) {
-    indicatorStatus.textContent = error.message;
-    renderResults([]);
-  }
+  fetchLiveCandles();
 });
 
 fetchLive.addEventListener("click", fetchLiveCandles);
@@ -497,11 +473,6 @@ if (resetChart) {
     renderSignalChart(latestResults);
   });
 }
-
-loadSample.addEventListener("click", () => {
-  candleInput.value = JSON.stringify(sampleCandles, null, 2);
-  indicatorForm.requestSubmit();
-});
 
 exportJson.addEventListener("click", () => {
   const payload = JSON.stringify(latestResults, null, 2);

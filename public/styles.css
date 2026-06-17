@@ -116,7 +116,7 @@ p {
 
 .summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -130,6 +130,14 @@ p {
 }
 
 .news-controls {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.admin-panel {
   margin-bottom: 14px;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -151,6 +159,13 @@ p {
   gap: 10px;
 }
 
+.admin-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
 .symbol-form label {
   font-size: 14px;
   font-weight: 700;
@@ -163,6 +178,12 @@ p {
   color: var(--text);
 }
 
+.admin-form label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
 .symbol-form input {
   flex: 1 1 220px;
   min-height: 40px;
@@ -170,6 +191,19 @@ p {
   border: 1px solid var(--line);
   border-radius: 8px;
   font: inherit;
+}
+
+.admin-form input {
+  flex: 1 1 220px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.admin-form input[type="url"] {
+  flex-basis: 360px;
 }
 
 .news-form input[type="text"] {
@@ -261,6 +295,17 @@ p {
   background: var(--watch);
   color: #fff;
   font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-form button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--watch);
+  color: #fff;
   font-weight: 700;
   cursor: pointer;
 }
@@ -774,6 +819,68 @@ text.sell-marker {
   color: var(--watch);
 }
 
+.admin-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.admin-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.admin-heading span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-list {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-list-item.disabled {
+  opacity: 0.62;
+}
+
+.admin-list-item div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-list-item strong {
+  font-size: 14px;
+}
+
+.admin-list-item span,
+.admin-list-item code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-list-item code {
+  max-width: 720px;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
@@ -849,13 +956,27 @@ tr:last-child td {
   box-shadow: inset 4px 0 0 var(--buy);
 }
 
+.buy-signal-row .symbol::after,
 .crossover-row .symbol::after {
-  content: "CROSS";
+  content: "BUY";
   display: inline-flex;
   margin-left: 8px;
   padding: 3px 6px;
   border-radius: 6px;
   background: var(--buy);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.sell-signal-row .symbol::after {
+  content: "SELL";
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--hot);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -929,6 +1050,11 @@ tr:last-child td {
 .BUY_SIGNAL {
   color: var(--buy);
   background: var(--buy-bg);
+}
+
+.SELL_SIGNAL {
+  color: var(--hot);
+  background: var(--hot-bg);
 }
 
 .OVERSOLD {
