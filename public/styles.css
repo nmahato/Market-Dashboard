@@ -1070,6 +1070,53 @@ th {
   color: var(--text);
 }
 
+.table-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.pager-size,
+.pager-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pager-size label {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pager-size select {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+}
+
+.pager-actions button {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.pager-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.pager-info,
+#pageNumber {
+  white-space: nowrap;
+}
+
 td {
   font-size: 14px;
 }
@@ -1303,6 +1350,20 @@ tr:last-child td {
 
   table {
     min-width: 760px;
+  }
+
+  .table-pager {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pager-actions {
+    justify-content: space-between;
+  }
+
+  .pager-info,
+  #pageNumber {
+    white-space: normal;
   }
 
   .indicator-table {
