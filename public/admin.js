@@ -8,6 +8,9 @@ const whatsappGroups = document.getElementById("whatsappGroups");
 const groupCount = document.getElementById("groupCount");
 const notificationState = document.getElementById("notificationState");
 const notificationSummary = document.getElementById("notificationSummary");
+const dailyStockState = document.getElementById("dailyStockState");
+const dailyStocks = document.getElementById("dailyStocks");
+const refreshDailyStocks = document.getElementById("refreshDailyStocks");
 
 let token = sessionStorage.getItem("marketDashboardAdminToken") || "";
 adminToken.value = token;
@@ -85,14 +88,65 @@ function renderNotifications(status) {
   `;
 }
 
+function formatTime(value) {
+  if (!value) return "--";
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(new Date(value));
+}
+
+function renderDailyStocks(payload) {
+  const topStocks = payload.topStocks || {};
+  const symbols = Array.isArray(topStocks.symbols) ? topStocks.symbols : [];
+  dailyStockState.textContent = `${symbols.length} symbols`;
+
+  if (!symbols.length) {
+    dailyStocks.innerHTML = '<p class="loading">No daily stocks loaded.</p>';
+    return;
+  }
+
+  const manualSymbols = Array.isArray(payload.manualSymbols) ? payload.manualSymbols : [];
+  const meta = [
+    `Source: ${topStocks.source || "Unknown"}`,
+    `Date: ${topStocks.date || "--"}`,
+    `Updated: ${formatTime(topStocks.updatedAt)}`,
+    manualSymbols.length ? `Manual: ${manualSymbols.join(", ")}` : ""
+  ].filter(Boolean).join(" | ");
+
+  dailyStocks.innerHTML = `
+    <article class="admin-list-item">
+      <div>
+        <strong>Daily Top List</strong>
+        <span>${escapeHtml(meta)}</span>
+        ${topStocks.error ? `<code>${escapeHtml(topStocks.error)}</code>` : ""}
+      </div>
+    </article>
+    <article class="admin-stock-grid">
+      ${symbols.map((symbol) => `
+        <div class="admin-stock-chip">
+          <strong>${escapeHtml(symbol)}</strong>
+          <span>
+            <a href="/indicator.html?symbol=${encodeURIComponent(symbol)}">Signals</a>
+            <a href="/news.html?q=${encodeURIComponent(symbol)}">News</a>
+          </span>
+        </div>
+      `).join("")}
+    </article>
+  `;
+}
+
 async function loadAdmin() {
   try {
-    const [groupPayload, statusPayload] = await Promise.all([
+    const [groupPayload, statusPayload, topStocksPayload] = await Promise.all([
       requestJson("/api/admin/whatsapp-groups"),
-      requestJson("/api/notifications")
+      requestJson("/api/notifications"),
+      requestJson("/api/top-stocks")
     ]);
     renderGroups(groupPayload.groups || []);
     renderNotifications(statusPayload);
+    renderDailyStocks(topStocksPayload);
     adminStatus.textContent = groupPayload.protected
       ? "Admin token protection is enabled."
       : "Admin token protection is not enabled on the server.";
@@ -148,6 +202,20 @@ whatsappGroups.addEventListener("click", async (event) => {
     adminStatus.textContent = "WhatsApp group disabled.";
   } catch (error) {
     adminStatus.textContent = error.message;
+  }
+});
+
+refreshDailyStocks.addEventListener("click", async () => {
+  adminStatus.textContent = "Refreshing daily stocks...";
+  refreshDailyStocks.disabled = true;
+  try {
+    const payload = await requestJson("/api/top-stocks?refresh=1");
+    renderDailyStocks(payload);
+    adminStatus.textContent = "Daily stocks refreshed.";
+  } catch (error) {
+    adminStatus.textContent = error.message;
+  } finally {
+    refreshDailyStocks.disabled = false;
   }
 });
 

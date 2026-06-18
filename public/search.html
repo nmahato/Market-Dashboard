@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stock Search</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Stock Search</h1>
+          <p>Find active stocks, gainers, losers, and RSI signal candidates.</p>
+        </div>
+        <div class="topbar-actions">
+          <nav class="page-nav" aria-label="Dashboard pages">
+            <a href="/">RSI Watch</a>
+            <a href="/search.html" aria-current="page">Search</a>
+            <a href="/indicator.html">Signals</a>
+            <a href="/news.html">News</a>
+            <a href="/admin.html">Admin</a>
+          </nav>
+          <div class="status-panel">
+            <span id="searchDot" class="dot"></span>
+            <span id="searchStatus">Starting</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="screener-controls">
+        <form id="screenerForm" class="screener-form">
+          <label for="screenerQuery">Ticker or company</label>
+          <div class="stock-search">
+            <input id="screenerQuery" name="query" type="text" autocomplete="off" placeholder="e.g. Nvidia, AAPL, Tesla">
+            <div id="symbolSuggestions" class="stock-suggestions" hidden></div>
+          </div>
+          <label for="presetSelect">Signal</label>
+          <select id="presetSelect" name="preset">
+            <option value="most-active">Most Active</option>
+            <option value="top-gainers">Top Gainers</option>
+            <option value="top-losers">Top Losers</option>
+          </select>
+          <label for="signalSelect">RSI</label>
+          <select id="signalSelect" name="signal">
+            <option value="all">Any</option>
+            <option value="BUY SIGNAL">Buy Signal</option>
+            <option value="SELL SIGNAL">Sell Signal</option>
+            <option value="OVERSOLD">Oversold</option>
+            <option value="EXTENDED">Extended</option>
+            <option value="WATCH">Watch</option>
+          </select>
+          <label for="minPrice">Min price</label>
+          <input id="minPrice" name="minPrice" type="number" min="0" step="0.01" placeholder="0">
+          <label for="maxPrice">Max price</label>
+          <input id="maxPrice" name="maxPrice" type="number" min="0" step="0.01" placeholder="Any">
+          <label for="minVolume">Min volume</label>
+          <input id="minVolume" name="minVolume" type="number" min="0" step="1000" placeholder="0">
+          <label for="sortSelect">Sort</label>
+          <select id="sortSelect" name="sort">
+            <option value="volume">Volume</option>
+            <option value="change">Change %</option>
+            <option value="price">Price</option>
+            <option value="rsi">RSI</option>
+            <option value="symbol">Ticker</option>
+            <option value="signal">Signal</option>
+          </select>
+          <button type="submit">Search</button>
+          <button id="resetScreener" type="button" class="secondary-btn">Reset</button>
+        </form>
+        <p id="screenerHelper" class="helper-text">Showing most active stocks by default.</p>
+      </section>
+
+      <section class="summary">
+        <div>
+          <span>Matches</span>
+          <strong id="matchCount">0</strong>
+        </div>
+        <div>
+          <span>Buy Signals</span>
+          <strong id="searchBuyCount">0</strong>
+        </div>
+        <div>
+          <span>Oversold</span>
+          <strong id="searchOversoldCount">0</strong>
+        </div>
+        <div>
+          <span>Updated</span>
+          <strong id="searchUpdated">--</strong>
+        </div>
+      </section>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Price</th>
+              <th>Change</th>
+              <th>Volume</th>
+              <th>Avg Volume</th>
+              <th>RSI</th>
+              <th>Previous RSI</th>
+              <th>Signal</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="screenerRows">
+            <tr>
+              <td colspan="9" class="loading">Loading stock search...</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+    <script src="/stock-search.js"></script>
+    <script src="/search.js"></script>
+  </body>
+</html>

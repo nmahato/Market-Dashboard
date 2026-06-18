@@ -16,6 +16,7 @@
         <div class="topbar-actions">
           <nav class="page-nav" aria-label="Dashboard pages">
             <a href="/">RSI Watch</a>
+            <a href="/search.html">Search</a>
             <a href="/indicator.html">Signals</a>
             <a href="/news.html">News</a>
             <a href="/admin.html" aria-current="page">Admin</a>
@@ -41,6 +42,19 @@
           <button type="submit">Add Group</button>
         </form>
         <p class="helper-text">Use the HTTPS webhook from your WhatsApp group bot or provider.</p>
+      </section>
+
+      <section class="admin-panel">
+        <div class="admin-heading">
+          <h2>Daily Stocks</h2>
+          <span id="dailyStockState">--</span>
+        </div>
+        <div id="dailyStocks" class="admin-list">
+          <p class="loading">Loading daily stocks...</p>
+        </div>
+        <div class="admin-actions">
+          <button id="refreshDailyStocks" type="button" class="secondary-btn">Refresh Daily Stocks</button>
+        </div>
       </section>
 
       <section class="admin-panel">

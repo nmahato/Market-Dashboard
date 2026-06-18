@@ -21,6 +21,7 @@ const resetChart = document.getElementById("resetChart");
 let latestResults = [];
 let isLoadingLive = false;
 let isLoadingNews = false;
+let chartZoom = { start: 0, end: 1 };
 const queryParams = new URLSearchParams(window.location.search);
 let symbolSearch;
 let selectedSymbolName = "";
@@ -223,12 +224,83 @@ function lineLabel(label, value, x, y, className) {
   `;
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function resetChartZoom() {
+  chartZoom = { start: 0, end: 1 };
+}
+
+function getChartZoomWindow(totalCount) {
+  if (totalCount < 2) return { startIndex: 0, endIndex: totalCount - 1, isZoomed: false };
+  const normalizedStart = clamp(chartZoom.start, 0, 1);
+  const normalizedEnd = clamp(chartZoom.end, normalizedStart, 1);
+  let startIndex = Math.floor(normalizedStart * (totalCount - 1));
+  let endIndex = Math.ceil(normalizedEnd * (totalCount - 1));
+
+  if (endIndex <= startIndex) {
+    endIndex = Math.min(totalCount - 1, startIndex + 1);
+    startIndex = Math.max(0, endIndex - 1);
+  }
+
+  return {
+    startIndex,
+    endIndex,
+    isZoomed: startIndex > 0 || endIndex < totalCount - 1
+  };
+}
+
+function zoomSignalChart(event) {
+  if (!Array.isArray(latestResults) || latestResults.length < 3) return;
+  event.preventDefault();
+
+  const rect = indicatorChart.getBoundingClientRect();
+  const cursorRatio = rect.width
+    ? clamp((event.clientX - rect.left) / rect.width, 0, 1)
+    : 0.5;
+  const currentStart = clamp(chartZoom.start, 0, 1);
+  const currentEnd = clamp(chartZoom.end, currentStart, 1);
+  const currentSpan = currentEnd - currentStart || 1;
+  const zoomFactor = event.deltaY < 0 ? 0.78 : 1.28;
+  const minSpan = Math.min(1, Math.max(2 / latestResults.length, 0.025));
+  const nextSpan = clamp(currentSpan * zoomFactor, minSpan, 1);
+  const anchor = currentStart + currentSpan * cursorRatio;
+  let nextStart = anchor - nextSpan * cursorRatio;
+  let nextEnd = nextStart + nextSpan;
+
+  if (nextStart < 0) {
+    nextEnd -= nextStart;
+    nextStart = 0;
+  }
+  if (nextEnd > 1) {
+    nextStart -= nextEnd - 1;
+    nextEnd = 1;
+  }
+
+  chartZoom = {
+    start: clamp(nextStart, 0, 1),
+    end: clamp(nextEnd, 0, 1)
+  };
+  renderSignalChart(latestResults);
+}
+
 function renderSignalChart(results) {
   if (!Array.isArray(results) || results.length < 2) {
     indicatorChart.innerHTML = "<p>No candle data calculated yet.</p>";
     chartRange.textContent = "No chart data yet.";
     return;
   }
+
+  const totalCount = results.length;
+  const zoomWindow = getChartZoomWindow(totalCount);
+  const visibleResults = results.slice(zoomWindow.startIndex, zoomWindow.endIndex + 1);
+  if (visibleResults.length < 2) {
+    resetChartZoom();
+    renderSignalChart(results);
+    return;
+  }
+  results = visibleResults;
 
   const width = 1040;
   const height = 420;
@@ -308,7 +380,9 @@ function renderSignalChart(results) {
     return lineLabel(label, value, labelX, y, className);
   }).join("");
 
-  chartRange.textContent = `${results.length} candles from ${firstTime} to ${lastTime}.`;
+  chartRange.textContent = zoomWindow.isZoomed
+    ? `${results.length} of ${totalCount} candles from ${firstTime} to ${lastTime}.`
+    : `${results.length} candles from ${firstTime} to ${lastTime}.`;
   indicatorChart.innerHTML = `
     <svg class="signal-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Candlestick chart with VWAP and EMA overlays">
       <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}"></rect>
@@ -328,6 +402,7 @@ function renderSignalChart(results) {
 
 function renderResults(results) {
   latestResults = results;
+  resetChartZoom();
   const tableResults = [...results].sort((a, b) => {
     const first = Date.parse(a.time);
     const second = Date.parse(b.time);
@@ -521,10 +596,13 @@ if (resetChart) {
     if (chartStyle) chartStyle.value = "candles";
     if (chartPanel) chartPanel.classList.remove("expanded");
     if (expandChart) expandChart.textContent = "Expand";
+    resetChartZoom();
     indicatorChart.scrollLeft = 0;
     renderSignalChart(latestResults);
   });
 }
+
+indicatorChart.addEventListener("wheel", zoomSignalChart, { passive: false });
 
 function applyUrlParams() {
   const symbol = queryParams.get("symbol");

@@ -145,7 +145,22 @@ p {
   background: var(--panel);
 }
 
+.screener-controls {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
 .symbol-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.screener-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -172,6 +187,12 @@ p {
   color: var(--text);
 }
 
+.screener-form label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
 .news-form label {
   font-size: 14px;
   font-weight: 700;
@@ -191,6 +212,20 @@ p {
   border: 1px solid var(--line);
   border-radius: 8px;
   font: inherit;
+}
+
+.screener-form input,
+.screener-form select {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+}
+
+.screener-form input[type="number"] {
+  width: 116px;
 }
 
 .admin-form input {
@@ -297,6 +332,24 @@ p {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+.screener-form button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--watch);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.screener-form .secondary-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
 }
 
 .admin-form button {
@@ -575,6 +628,7 @@ p {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfd;
+  cursor: zoom-in;
 }
 
 .chart-panel.expanded {
@@ -881,6 +935,79 @@ text.sell-marker {
   max-width: 720px;
 }
 
+.admin-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.admin-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-stock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.admin-stock-chip {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-stock-chip strong {
+  font-size: 16px;
+}
+
+.admin-stock-chip span {
+  display: flex;
+  gap: 6px;
+}
+
+.admin-stock-chip a {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--watch);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.action-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.action-links a {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--watch);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
@@ -1121,6 +1248,17 @@ tr:last-child td {
   .symbol-form button {
     margin-top: 10px;
     width: 100%;
+  }
+
+  .screener-form {
+    display: block;
+  }
+
+  .screener-form input,
+  .screener-form select,
+  .screener-form button {
+    width: 100%;
+    margin-top: 10px;
   }
 
   .news-form {

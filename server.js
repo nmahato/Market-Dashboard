@@ -14,6 +14,11 @@ const CANDLE_INTERVALS = new Set(["1m", "2m", "5m", "15m", "30m", "60m"]);
 const NOTIFICATION_COOLDOWN_MS = Math.max(60_000, Number(process.env.NOTIFICATION_COOLDOWN_MS) || 15 * 60 * 1000);
 const TOP_STOCK_COUNT = 10;
 const TOP_STOCK_REFRESH_MS = 24 * 60 * 60 * 1000;
+const SCREENER_PRESETS = new Map([
+  ["most-active", { label: "Most Active", scrId: "most_actives" }],
+  ["top-gainers", { label: "Top Gainers", scrId: "day_gainers" }],
+  ["top-losers", { label: "Top Losers", scrId: "day_losers" }]
+]);
 let trackedSymbols = [...DEFAULT_SYMBOLS];
 let manualSymbols = [];
 let dailyTopStocks = {
@@ -119,6 +124,91 @@ function normalizeTopStockQuotes(quotes) {
     .slice(0, TOP_STOCK_COUNT);
 }
 
+function firstFinanceResult(json) {
+  if (!json || !json.finance) return null;
+  return Array.isArray(json.finance.result)
+    ? json.finance.result[0]
+    : json.finance.result;
+}
+
+function sortScreenerRows(rows, sortKey) {
+  const sorters = {
+    change: (a, b) => (b.todayChangePercent ?? -Infinity) - (a.todayChangePercent ?? -Infinity),
+    price: (a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity),
+    volume: (a, b) => (b.volume ?? -Infinity) - (a.volume ?? -Infinity),
+    rsi: (a, b) => (b.rsi ?? -Infinity) - (a.rsi ?? -Infinity),
+    symbol: (a, b) => String(a.symbol || "").localeCompare(String(b.symbol || "")),
+    signal: (a, b) => String(a.state || "").localeCompare(String(b.state || ""))
+  };
+  return [...rows].sort(sorters[sortKey] || sorters.volume);
+}
+
+async function getScreenerSymbols(preset, query, limit = 30) {
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 30, MAX_SYMBOLS));
+  const normalizedQuery = String(query || "").trim();
+  if (normalizedQuery) {
+    const matches = await searchSymbols(normalizedQuery);
+    return matches.map((item) => item.symbol).slice(0, normalizedLimit);
+  }
+
+  const presetConfig = SCREENER_PRESETS.get(preset) || SCREENER_PRESETS.get("most-active");
+  const url = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=${encodeURIComponent(presetConfig.scrId)}&count=${normalizedLimit}`;
+  const json = await requestJson(url);
+  const result = firstFinanceResult(json);
+  return normalizeSymbols(((result && result.quotes) || []).map((quote) => quote.symbol)).slice(0, normalizedLimit);
+}
+
+function filterScreenerRows(rows, params) {
+  const optionalNumber = (name) => {
+    const value = params.get(name);
+    if (value === null || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+  const minPrice = optionalNumber("minPrice");
+  const maxPrice = optionalNumber("maxPrice");
+  const minVolume = optionalNumber("minVolume");
+  const signal = String(params.get("signal") || "all");
+
+  return rows.filter((row) => {
+    if (signal !== "all" && row.state !== signal) return false;
+    if (minPrice !== null && (!Number.isFinite(row.price) || row.price < minPrice)) return false;
+    if (maxPrice !== null && (!Number.isFinite(row.price) || row.price > maxPrice)) return false;
+    if (minVolume !== null && (!Number.isFinite(row.volume) || row.volume < minVolume)) return false;
+    return true;
+  });
+}
+
+async function getScreenerData(params) {
+  const preset = params.get("preset") || "most-active";
+  const query = params.get("q") || "";
+  const sort = params.get("sort") || "volume";
+  const limit = params.get("limit") || 30;
+  const symbols = await getScreenerSymbols(preset, query, limit);
+  const settled = await Promise.allSettled(symbols.map(getSymbolData));
+  const rows = settled.map((result, index) => {
+    if (result.status === "fulfilled") return result.value;
+    return {
+      symbol: symbols[index],
+      error: result.reason.message,
+      state: "ERROR",
+      updatedAt: new Date().toISOString()
+    };
+  });
+  const filtered = sortScreenerRows(filterScreenerRows(rows, params), sort);
+  const presetConfig = SCREENER_PRESETS.get(preset) || SCREENER_PRESETS.get("most-active");
+
+  return {
+    query,
+    preset,
+    presetLabel: query ? "Symbol Search" : presetConfig.label,
+    source: query ? "Yahoo Finance symbol search" : `Yahoo Finance ${presetConfig.label}`,
+    updatedAt: new Date().toISOString(),
+    count: filtered.length,
+    data: filtered
+  };
+}
+
 async function refreshDailyTopStocks(force = false) {
   const today = marketDateKey();
   if (!force && dailyTopStocks.date === today && dailyTopStocks.symbols.length) {
@@ -129,7 +219,7 @@ async function refreshDailyTopStocks(force = false) {
   const url = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=${TOP_STOCK_COUNT}`;
   try {
     const json = await requestJson(url);
-    const result = json.finance && Array.isArray(json.finance.result) ? json.finance.result[0] : null;
+    const result = firstFinanceResult(json);
     const symbols = normalizeTopStockQuotes(result && result.quotes);
     if (!symbols.length) throw new Error("No top stocks returned");
 
@@ -930,6 +1020,17 @@ const server = http.createServer((req, res) => {
         });
       } catch (error) {
         sendError(res, 500, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/screener") {
+    (async () => {
+      try {
+        sendJson(res, await getScreenerData(parsedUrl.searchParams));
+      } catch (error) {
+        sendError(res, 400, error.message);
       }
     })();
     return;
