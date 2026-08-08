@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Market Dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "debug"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"],
+      "env": {
+        "PORT": "4178",
+        "SQLITE_DB_PATH": "${env:TEMP}/market-watch-debug.sqlite"
+      }
+    },
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Attach to Market Dashboard",
+      "port": 9229,
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

@@ -1,4 +1,15 @@
 node_modules/
+# Original folders retained locally because this managed Windows workspace
+# blocks delete/rename operations; market-research/ is the canonical project.
+frontend/
+backend/
+market-research/frontend/node_modules/
+market-research/frontend/dist/
+market-research/backend/.venv/
+market-research/backend/__pycache__/
+market-research/backend/**/__pycache__/
+market-research/data/
+.market-research-move-cleanup/
 .env
 data/
 *.sqlite
@@ -7,3 +18,4 @@ data/
 *.log
 .DS_Store
 Thumbs.db
+iisnode/

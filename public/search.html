@@ -15,9 +15,11 @@
         </div>
         <div class="topbar-actions">
           <nav class="page-nav" aria-label="Dashboard pages">
-            <a href="/">RSI Watch</a>
+            <a href="/index.html">RSI Watch</a>
+            <a href="/">Movers</a>
             <a href="/search.html" aria-current="page">Search</a>
             <a href="/indicator.html">Signals</a>
+            <a href="/options.html">Options</a>
             <a href="/news.html">News</a>
             <a href="/admin.html">Admin</a>
           </nav>
@@ -35,6 +37,7 @@
             <input id="screenerQuery" name="query" type="text" autocomplete="off" placeholder="e.g. Nvidia, AAPL, Tesla">
             <div id="symbolSuggestions" class="stock-suggestions" hidden></div>
           </div>
+          <div>
           <label for="presetSelect">Signal</label>
           <select id="presetSelect" name="preset">
             <option value="most-active">Most Active</option>
@@ -65,8 +68,11 @@
             <option value="symbol">Ticker</option>
             <option value="signal">Signal</option>
           </select>
+          </div>
+          <div>
           <button type="submit">Search</button>
           <button id="resetScreener" type="button" class="secondary-btn">Reset</button>
+          </div>
         </form>
         <p id="screenerHelper" class="helper-text">Showing most active stocks by default.</p>
       </section>
@@ -94,14 +100,14 @@
         <table>
           <thead>
             <tr>
-              <th><button type="button" class="sort-btn" data-sort-key="symbol" aria-label="Sort by ticker">Ticker <span aria-hidden="true"></span></button></th>
-              <th><button type="button" class="sort-btn" data-sort-key="price" aria-label="Sort by price">Price <span aria-hidden="true"></span></button></th>
-              <th><button type="button" class="sort-btn" data-sort-key="todayChangePercent" aria-label="Sort by change">Change <span aria-hidden="true"></span></button></th>
-              <th><button type="button" class="sort-btn active" data-sort-key="volume" aria-label="Sort by volume">Volume <span aria-hidden="true">▼</span></button></th>
-              <th><button type="button" class="sort-btn" data-sort-key="avgVolume" aria-label="Sort by average volume">Avg Volume <span aria-hidden="true"></span></button></th>
-              <th><button type="button" class="sort-btn" data-sort-key="rsi" aria-label="Sort by RSI">RSI <span aria-hidden="true"></span></button></th>
-              <th><button type="button" class="sort-btn" data-sort-key="previousRsi" aria-label="Sort by previous RSI">Previous RSI <span aria-hidden="true"></span></button></th>
-              <th><button type="button" class="sort-btn" data-sort-key="state" aria-label="Sort by signal">Signal <span aria-hidden="true"></span></button></th>
+              <th>Ticker</th>
+              <th>Price</th>
+              <th>Change</th>
+              <th>Volume</th>
+              <th>Avg Volume</th>
+              <th>RSI</th>
+              <th>Previous RSI</th>
+              <th>Signal</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -112,24 +118,9 @@
           </tbody>
         </table>
       </section>
-      <section class="table-pager" aria-label="Search results pages">
-        <div class="pager-size">
-          <label for="pageSizeSelect">Rows</label>
-          <select id="pageSizeSelect">
-            <option value="10">10</option>
-            <option value="25" selected>25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-          </select>
-        </div>
-        <div id="pagerInfo" class="pager-info">0 results</div>
-        <div class="pager-actions">
-          <button id="prevPage" type="button" class="secondary-btn">Previous</button>
-          <span id="pageNumber">Page 1 of 1</span>
-          <button id="nextPage" type="button" class="secondary-btn">Next</button>
-        </div>
-      </section>
     </main>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
     <script src="/stock-search.js"></script>
     <script src="/search.js"></script>
   </body>

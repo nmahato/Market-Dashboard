@@ -1,10 +1,15 @@
+require("./load-env");
+
 const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const sqlite3 = require("sqlite3").verbose();
 
-const PORT = process.env.PORT || 4178;
+const PORT = process.env.PORT || 4180;
+const SESSION_COOKIE_NAME = "session";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DB_PATH = process.env.SQLITE_DB_PATH || path.join(__dirname, "data", "market-watch.sqlite");
 const DEFAULT_SYMBOLS = ["MU", "MRVL", "NVDA", "TSLA", "INTC", "SNDK", "AMD", "AVGO", "AAPL", "MSFT"];
 const MAX_SYMBOLS = 50;
@@ -12,7 +17,11 @@ const MAX_POST_BYTES = 4096;
 const AVG_VOLUME_CACHE_MS = 30 * 60 * 1000;
 const CANDLE_INTERVALS = new Set(["1m", "2m", "5m", "15m", "30m", "60m"]);
 const NOTIFICATION_COOLDOWN_MS = Math.max(60_000, Number(process.env.NOTIFICATION_COOLDOWN_MS) || 15 * 60 * 1000);
-const TOP_STOCK_COUNT = 10;
+const ALPACA_PAPER_URL = "https://paper-api.alpaca.markets";
+const ALPACA_BUY_NOTIONAL = Math.max(1, Math.min(Number(process.env.ALPACA_BUY_NOTIONAL) || 100, 1000));
+const ALPACA_MAX_DAILY_ORDERS = Math.max(1, Math.min(Number(process.env.ALPACA_MAX_DAILY_ORDERS) || 3, 20));
+const ALPACA_ALLOWED_SYMBOLS = new Set(normalizeSymbols(process.env.ALPACA_ALLOWED_SYMBOLS));
+const TOP_STOCK_COUNT = 100;
 const TOP_STOCK_REFRESH_MS = 24 * 60 * 60 * 1000;
 const SCREENER_PRESETS = new Map([
   ["most-active", { label: "Most Active", scrId: "most_actives" }],
@@ -21,6 +30,7 @@ const SCREENER_PRESETS = new Map([
 ]);
 let trackedSymbols = [...DEFAULT_SYMBOLS];
 let manualSymbols = [];
+let selectedWatchSymbols = null;
 let dailyTopStocks = {
   date: null,
   symbols: [...DEFAULT_SYMBOLS],
@@ -35,6 +45,9 @@ const newsCache = new Map();
 const notificationCooldowns = new Map();
 const recentNotifications = [];
 let whatsappGroupCache = [];
+const tradingExecutionsInFlight = new Set();
+let paperTradeBatchRunning = false;
+const sessions = new Map();
 
 function initDatabase() {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -80,6 +93,43 @@ function initDatabase() {
     `, () => {
       refreshWhatsAppGroupCache();
     });
+    db.run(`
+      CREATE TABLE IF NOT EXISTS paper_trade_executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        execution_key TEXT NOT NULL UNIQUE,
+        symbol TEXT NOT NULL,
+        signal TEXT NOT NULL,
+        side TEXT NOT NULL,
+        status TEXT NOT NULL,
+        order_id TEXT,
+        detail TEXT,
+        observed_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.run("CREATE INDEX IF NOT EXISTS idx_paper_trade_created ON paper_trade_executions(created_at)");
+    db.run(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `, () => {
+      loadWatchlistSelection();
+    });
+    db.run(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `, () => {
+      ensureDefaultAdmin().catch((error) => {
+        console.error(`Failed to bootstrap default admin: ${error.message}`);
+      });
+    });
   });
 }
 
@@ -110,10 +160,11 @@ function marketDateKey(date = new Date()) {
 }
 
 function syncTrackedSymbols() {
-  trackedSymbols = Array.from(new Set([
-    ...(dailyTopStocks.symbols.length ? dailyTopStocks.symbols : DEFAULT_SYMBOLS),
-    ...manualSymbols
-  ])).slice(0, MAX_SYMBOLS);
+  const dailySymbols = dailyTopStocks.symbols.length ? dailyTopStocks.symbols : DEFAULT_SYMBOLS;
+  const availableSymbols = Array.from(new Set([...dailySymbols, ...manualSymbols])).slice(0, MAX_SYMBOLS);
+  trackedSymbols = selectedWatchSymbols === null
+    ? availableSymbols
+    : availableSymbols.filter((symbol) => selectedWatchSymbols.has(symbol));
   return trackedSymbols;
 }
 
@@ -269,6 +320,174 @@ function dbRun(sql, params = []) {
       else resolve({ id: this.lastID, changes: this.changes });
     });
   });
+}
+
+function dbGet(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      resolve(null);
+      return;
+    }
+    db.get(sql, params, (error, row) => {
+      if (error) reject(error);
+      else resolve(row || null);
+    });
+  });
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, hash] = String(stored || "").split(":");
+  if (!salt || !hash) return false;
+  const candidateHash = crypto.scryptSync(password, salt, 64).toString("hex");
+  const candidateBuffer = Buffer.from(candidateHash, "hex");
+  const storedBuffer = Buffer.from(hash, "hex");
+  if (candidateBuffer.length !== storedBuffer.length) return false;
+  return crypto.timingSafeEqual(candidateBuffer, storedBuffer);
+}
+
+async function ensureDefaultAdmin() {
+  const row = await dbGet("SELECT COUNT(*) AS count FROM users");
+  if (row && row.count > 0) return;
+  const username = process.env.ADMIN_USERNAME || "admin";
+  const password = process.env.ADMIN_PASSWORD || "admin";
+  await dbRun("INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')", [username, hashPassword(password)]);
+  if (!process.env.ADMIN_PASSWORD) {
+    console.warn(`Created default admin user "${username}" with password "admin" - set ADMIN_USERNAME/ADMIN_PASSWORD in .env, then sign in and change it.`);
+  } else {
+    console.log(`Created default admin user "${username}".`);
+  }
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const cookies = {};
+  if (!header) return cookies;
+  header.split(";").forEach((pair) => {
+    const separator = pair.indexOf("=");
+    if (separator < 0) return;
+    const key = pair.slice(0, separator).trim();
+    const value = pair.slice(separator + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(value);
+  });
+  return cookies;
+}
+
+function createSession(user) {
+  const token = crypto.randomBytes(32).toString("hex");
+  sessions.set(token, {
+    userId: user.id,
+    username: user.username,
+    role: user.role,
+    expiresAt: Date.now() + SESSION_TTL_MS
+  });
+  return token;
+}
+
+function getSessionUser(req) {
+  const cookies = parseCookies(req);
+  const token = cookies[SESSION_COOKIE_NAME];
+  if (!token) return null;
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (session.expiresAt < Date.now()) {
+    sessions.delete(token);
+    return null;
+  }
+  return session;
+}
+
+function destroySession(req) {
+  const cookies = parseCookies(req);
+  const token = cookies[SESSION_COOKIE_NAME];
+  if (token) sessions.delete(token);
+}
+
+function setSessionCookie(res, token) {
+  const maxAgeSeconds = Math.floor(SESSION_TTL_MS / 1000);
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE_NAME}=${token}; HttpOnly; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`);
+}
+
+function clearSessionCookie(res) {
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax`);
+}
+
+function requireAdminUser(req) {
+  const user = getSessionUser(req);
+  return user && user.role === "admin" ? user : null;
+}
+
+async function loadWatchlistSelection() {
+  try {
+    const rows = await dbAll("SELECT key, value FROM app_settings WHERE key IN ('watchlist_symbols', 'manual_watchlist_symbols')");
+    const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    manualSymbols = settings.manual_watchlist_symbols
+      ? normalizeSymbols(JSON.parse(settings.manual_watchlist_symbols)).slice(0, MAX_SYMBOLS)
+      : [];
+    if (!settings.watchlist_symbols) {
+      selectedWatchSymbols = null;
+    } else {
+      selectedWatchSymbols = new Set(normalizeSymbols(JSON.parse(settings.watchlist_symbols)));
+    }
+    syncTrackedSymbols();
+  } catch (error) {
+    console.warn(`Failed to load watchlist selection: ${error.message}`);
+  }
+  return trackedSymbols;
+}
+
+async function saveAppSetting(key, value) {
+  await dbRun(`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+  `, [key, JSON.stringify(value)]);
+}
+
+async function saveWatchlistSelection(input) {
+  const symbols = normalizeSymbols(input);
+  const availableSymbols = new Set([...dailyTopStocks.symbols, ...manualSymbols]);
+  const invalid = symbols.filter((symbol) => !availableSymbols.has(symbol));
+  if (invalid.length) {
+    throw new Error(`Only Daily Top 10 or manually added symbols can be watched: ${invalid.join(", ")}`);
+  }
+  await saveAppSetting("watchlist_symbols", symbols);
+  selectedWatchSymbols = new Set(symbols);
+  return syncTrackedSymbols();
+}
+
+async function addManualWatchlistSymbols(input) {
+  const additions = normalizeSymbols(input);
+  if (!additions.length) throw new Error("Enter at least one valid ticker symbol");
+  const dailySet = new Set(dailyTopStocks.symbols);
+  manualSymbols = Array.from(new Set([
+    ...manualSymbols,
+    ...additions.filter((symbol) => !dailySet.has(symbol))
+  ])).slice(0, Math.max(0, MAX_SYMBOLS - dailyTopStocks.symbols.length));
+  await saveAppSetting("manual_watchlist_symbols", manualSymbols);
+
+  if (selectedWatchSymbols !== null) {
+    additions.forEach((symbol) => selectedWatchSymbols.add(symbol));
+    await saveAppSetting("watchlist_symbols", [...selectedWatchSymbols]);
+  }
+  return syncTrackedSymbols();
+}
+
+function watchlistPayload() {
+  return {
+    topStocks: dailyTopStocks,
+    symbols: trackedSymbols,
+    selectedSymbols: selectedWatchSymbols === null
+      ? Array.from(new Set([...dailyTopStocks.symbols, ...manualSymbols]))
+      : Array.from(new Set([...dailyTopStocks.symbols, ...manualSymbols])).filter((symbol) => selectedWatchSymbols.has(symbol)),
+    selectionConfigured: selectedWatchSymbols !== null,
+    manualSymbols: [...manualSymbols]
+  };
 }
 
 async function refreshWhatsAppGroupCache() {
@@ -472,6 +691,62 @@ async function getAverageVolumeData(symbol) {
   }
 }
 
+const MARKET_TICKER_SYMBOLS = [
+  { symbol: "^GSPC", label: "S&P 500" },
+  { symbol: "^DJI", label: "Dow Jones" },
+  { symbol: "^IXIC", label: "Nasdaq" },
+  { symbol: "^RUT", label: "Russell 2000" },
+  { symbol: "^VIX", label: "VIX" },
+  { symbol: "GC=F", label: "Gold" },
+  { symbol: "SI=F", label: "Silver" },
+  { symbol: "CL=F", label: "Crude Oil" },
+  { symbol: "NG=F", label: "Natural Gas" }
+];
+const MARKET_TICKER_CACHE_MS = 5 * 1000;
+let marketTickerCache = null;
+let marketTickerCachedAt = 0;
+
+async function getQuoteSnapshot(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`;
+  const json = await requestJson(url);
+  const result = json.chart && json.chart.result && json.chart.result[0];
+  const meta = (result && result.meta) || {};
+  const price = Number.isFinite(meta.regularMarketPrice) ? meta.regularMarketPrice : null;
+  const previousClose = Number.isFinite(meta.chartPreviousClose)
+    ? meta.chartPreviousClose
+    : Number.isFinite(meta.previousClose)
+      ? meta.previousClose
+      : null;
+  if (!Number.isFinite(price)) {
+    throw new Error(`No price data for ${symbol}`);
+  }
+  const changePercent = Number.isFinite(previousClose) && previousClose !== 0
+    ? ((price - previousClose) / previousClose) * 100
+    : null;
+  return {
+    symbol,
+    price: Number(price.toFixed(2)),
+    changePercent: Number.isFinite(changePercent) ? Number(changePercent.toFixed(2)) : null
+  };
+}
+
+async function getMarketTicker(force = false) {
+  if (!force && marketTickerCache && Date.now() - marketTickerCachedAt < MARKET_TICKER_CACHE_MS) {
+    return marketTickerCache;
+  }
+  const settled = await Promise.allSettled(MARKET_TICKER_SYMBOLS.map((item) => getQuoteSnapshot(item.symbol)));
+  const items = MARKET_TICKER_SYMBOLS.map((item, index) => {
+    const result = settled[index];
+    if (result.status === "fulfilled") {
+      return { ...result.value, label: item.label };
+    }
+    return { symbol: item.symbol, label: item.label, price: null, changePercent: null, error: result.reason.message };
+  });
+  marketTickerCache = { updatedAt: new Date().toISOString(), items };
+  marketTickerCachedAt = Date.now();
+  return marketTickerCache;
+}
+
 async function getSymbolData(symbol) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`;
   const [json, volumeData] = await Promise.all([
@@ -584,6 +859,183 @@ async function getCandles(symbol, interval = "1m") {
   };
 }
 
+function exponentialAverage(values, period) {
+  if (!values.length) return null;
+  const multiplier = 2 / (period + 1);
+  return values.slice(1).reduce((average, value) =>
+    average + (value - average) * multiplier, values[0]);
+}
+
+function annualizedVolatility(returns) {
+  if (!returns.length) return 0;
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const variance = returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, returns.length - 1);
+  return Math.sqrt(variance) * Math.sqrt(252);
+}
+
+function nextMonthlyOptionDate(minimumDays = 28) {
+  const minimum = new Date();
+  minimum.setUTCDate(minimum.getUTCDate() + minimumDays);
+  for (let offset = 0; offset < 8; offset += 1) {
+    const first = new Date(Date.UTC(minimum.getUTCFullYear(), minimum.getUTCMonth() + offset, 1));
+    const firstFriday = 1 + ((5 - first.getUTCDay() + 7) % 7);
+    const thirdFriday = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), firstFriday + 14));
+    if (thirdFriday >= minimum) return thirdFriday.toISOString().slice(0, 10);
+  }
+  return minimum.toISOString().slice(0, 10);
+}
+
+async function getOptionStrategyAnalysis(symbol) {
+  const normalizedSymbol = normalizeSymbols(symbol)[0];
+  if (!normalizedSymbol) throw new Error("A valid symbol is required");
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(normalizedSymbol)}?range=6mo&interval=1d`;
+  const json = await requestJson(url);
+  const result = json.chart && json.chart.result && json.chart.result[0];
+  const quote = result && result.indicators && result.indicators.quote && result.indicators.quote[0];
+  const closes = quote && Array.isArray(quote.close)
+    ? quote.close.filter(Number.isFinite)
+    : [];
+  if (closes.length < 55) throw new Error("Not enough daily history for strategy analysis");
+
+  const spot = closes[closes.length - 1];
+  const returns = closes.slice(1).map((value, index) => Math.log(value / closes[index])).filter(Number.isFinite);
+  const volatility20 = annualizedVolatility(returns.slice(-20));
+  const recentVolatility = annualizedVolatility(returns.slice(-10));
+  const priorVolatility = annualizedVolatility(returns.slice(-30, -10));
+  const expansion = priorVolatility > 0 ? recentVolatility / priorVolatility : 1;
+  const ema20 = exponentialAverage(closes.slice(-60), 20);
+  const ema50 = exponentialAverage(closes, 50);
+  const return20 = ((spot / closes[closes.length - 21]) - 1) * 100;
+  const rsiValues = rsiSeries(closes);
+  const rsi = rsiValues[rsiValues.length - 1];
+  const mildBullish = spot >= ema20 && ema20 >= ema50 && rsi >= 40 && rsi <= 72;
+  const stronglyBullish = spot > ema20 && ema20 > ema50 && return20 >= 5 && rsi < 75;
+  const stronglyBearish = spot < ema20 && ema20 < ema50 && return20 <= -5 && rsi > 25;
+  const rangeBound = Math.abs(return20) <= 3 && rsi >= 43 && rsi <= 57;
+  const volatilityExpanding = expansion >= 1.15 && volatility20 >= 0.18;
+
+  let recommendation = "wait";
+  let confidence = 50;
+  let rationale = "Signals do not strongly favor any supported strategy.";
+  if (volatilityExpanding && !stronglyBullish && !stronglyBearish) {
+    recommendation = "long-strangle";
+    confidence = Math.min(85, Math.round(58 + (expansion - 1) * 35));
+    rationale = "Recent realized volatility is expanding, which better fits a long-volatility strangle if the future move exceeds premiums paid.";
+  } else if (rangeBound && volatility20 >= 0.25 && expansion < 1.1) {
+    recommendation = "iron-condor";
+    confidence = Math.min(82, Math.round(60 + volatility20 * 35));
+    rationale = "Price is range-bound while realized volatility is elevated but not expanding, which better fits a defined-risk premium-selling iron condor.";
+  } else if (stronglyBullish) {
+    recommendation = "bull-call-spread";
+    confidence = Math.min(85, Math.round(62 + return20));
+    rationale = "Price, EMA alignment, and 20-day return are bullish, favoring a defined-risk bull call spread over a neutral income structure.";
+  } else if (stronglyBearish) {
+    recommendation = "bear-put-spread";
+    confidence = Math.min(85, Math.round(62 + Math.abs(return20)));
+    rationale = "Price, EMA alignment, and 20-day return are bearish, favoring a defined-risk bear put spread.";
+  } else if (mildBullish || (rsi >= 42 && rsi <= 65 && return20 >= -3)) {
+    recommendation = "covered-call";
+    confidence = Math.min(82, Math.round(58 + Math.max(0, return20) * 1.5));
+    rationale = "Trend and RSI are neutral-to-bullish without strong volatility expansion, which better fits covered-call income for an existing 100-share position.";
+  } else if (rsi < 35 || rsi > 75 || Math.abs(return20) > 12) {
+    confidence = 68;
+    rationale = "The move is unusually directional or extended; neither available strategy has a clean model fit, so waiting is safer than forcing a trade.";
+  }
+
+  const expiration = nextMonthlyOptionDate(28);
+  const volatilityProxy = Math.max(10, Math.min(150, volatility20 * 100));
+  return {
+    symbol: normalizedSymbol,
+    updatedAt: new Date().toISOString(),
+    spot: Number(spot.toFixed(2)),
+    expiration,
+    volatilityProxy: Number(volatilityProxy.toFixed(2)),
+    coveredCallStrike: Math.max(1, Math.round(spot * 1.05)),
+    stranglePutStrike: Math.max(0.5, Math.round(spot * 0.98)),
+    strangleCallStrike: Math.max(1, Math.round(spot * 1.02)),
+    recommendation,
+    confidence,
+    rationale,
+    metrics: {
+      rsi: Number(rsi.toFixed(2)),
+      ema20: Number(ema20.toFixed(2)),
+      ema50: Number(ema50.toFixed(2)),
+      return20: Number(return20.toFixed(2)),
+      realizedVolatility20: Number((volatility20 * 100).toFixed(2)),
+      volatilityExpansion: Number(expansion.toFixed(2))
+    }
+  };
+}
+
+const optionChainCache = new Map();
+const OPTION_CHAIN_CACHE_MS = 20 * 1000;
+
+function normalizeOptionContract(contract) {
+  return {
+    contractSymbol: contract.contractSymbol || null,
+    strike: Number.isFinite(contract.strike) ? contract.strike : null,
+    bid: Number.isFinite(contract.bid) ? contract.bid : null,
+    ask: Number.isFinite(contract.ask) ? contract.ask : null,
+    lastPrice: Number.isFinite(contract.lastPrice) ? contract.lastPrice : null,
+    change: Number.isFinite(contract.change) ? contract.change : null,
+    percentChange: Number.isFinite(contract.percentChange) ? contract.percentChange : null,
+    volume: Number.isFinite(contract.volume) ? contract.volume : null,
+    openInterest: Number.isFinite(contract.openInterest) ? contract.openInterest : null,
+    impliedVolatility: Number.isFinite(contract.impliedVolatility) ? contract.impliedVolatility * 100 : null,
+    inTheMoney: Boolean(contract.inTheMoney)
+  };
+}
+
+async function getOptionChain(symbol, expiration) {
+  const normalizedSymbol = normalizeSymbols(symbol)[0];
+  if (!normalizedSymbol) throw new Error("A valid symbol is required");
+  const normalizedExpiration = /^\d+$/.test(String(expiration || "")) ? String(expiration) : "";
+  const cacheKey = `${normalizedSymbol}:${normalizedExpiration || "default"}`;
+  const cached = optionChainCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < OPTION_CHAIN_CACHE_MS) {
+    return cached.data;
+  }
+
+  const dateQuery = normalizedExpiration ? `&date=${encodeURIComponent(normalizedExpiration)}` : "";
+  const fetchChain = async (auth) => {
+    const crumbQuery = auth && auth.crumb ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
+    const url = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(normalizedSymbol)}?formatted=false${dateQuery}${crumbQuery}`;
+    return requestJson(url, auth && auth.cookie ? { Cookie: auth.cookie } : {});
+  };
+
+  let json;
+  try {
+    json = await fetchChain(await getYahooAuth());
+  } catch (error) {
+    json = await fetchChain(await getYahooAuth(true));
+  }
+  const result = json.optionChain && Array.isArray(json.optionChain.result) && json.optionChain.result[0];
+  if (!result) {
+    const chainError = json.optionChain && json.optionChain.error;
+    throw new Error((chainError && chainError.description) || `No option chain available for ${normalizedSymbol}`);
+  }
+
+  const quote = result.quote || {};
+  const optionsBlock = (Array.isArray(result.options) && result.options[0]) || {};
+  const data = {
+    symbol: normalizedSymbol,
+    price: Number.isFinite(quote.regularMarketPrice) ? quote.regularMarketPrice : null,
+    change: Number.isFinite(quote.regularMarketChange) ? quote.regularMarketChange : null,
+    changePercent: Number.isFinite(quote.regularMarketChangePercent) ? quote.regularMarketChangePercent : null,
+    expirationDates: Array.isArray(result.expirationDates) ? result.expirationDates : [],
+    selectedExpiration: optionsBlock.expirationDate || null,
+    calls: Array.isArray(optionsBlock.calls)
+      ? optionsBlock.calls.map(normalizeOptionContract).sort((a, b) => (a.strike ?? 0) - (b.strike ?? 0))
+      : [],
+    puts: Array.isArray(optionsBlock.puts)
+      ? optionsBlock.puts.map(normalizeOptionContract).sort((a, b) => (a.strike ?? 0) - (b.strike ?? 0))
+      : [],
+    updatedAt: new Date().toISOString()
+  };
+  optionChainCache.set(cacheKey, { cachedAt: Date.now(), data });
+  return data;
+}
+
 async function searchSymbols(query) {
   const normalizedQuery = String(query || "").trim();
   if (normalizedQuery.length < 2) return [];
@@ -598,11 +1050,11 @@ async function searchSymbols(query) {
   const json = await requestJson(url);
   const quotes = Array.isArray(json.quotes) ? json.quotes : [];
   const results = quotes
-    .filter((quote) => quote.symbol && quote.shortname)
+    .filter((quote) => quote.symbol)
     .filter((quote) => !quote.quoteType || ["EQUITY", "ETF"].includes(quote.quoteType))
     .map((quote) => ({
       symbol: String(quote.symbol).toUpperCase(),
-      name: quote.shortname || quote.longname || quote.symbol,
+      name: quote.longname || quote.shortname || quote.symbol,
       exchange: quote.exchDisp || quote.exchange || "",
       type: quote.quoteType || ""
     }))
@@ -679,14 +1131,15 @@ async function getNews(query, symbols, limit = 24) {
   return data;
 }
 
-function requestJson(url) {
+function requestRaw(url, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const request = https.get(
       url,
       {
         headers: {
           "User-Agent": "Mozilla/5.0",
-          Accept: "application/json"
+          Accept: "application/json",
+          ...extraHeaders
         }
       },
       (response) => {
@@ -695,15 +1148,7 @@ function requestJson(url) {
           body += chunk;
         });
         response.on("end", () => {
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            reject(new Error(`Quote request failed with ${response.statusCode}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(body));
-          } catch (error) {
-            reject(error);
-          }
+          resolve({ statusCode: response.statusCode, headers: response.headers, body });
         });
       }
     );
@@ -714,6 +1159,35 @@ function requestJson(url) {
 
     request.on("error", reject);
   });
+}
+
+function requestJson(url, extraHeaders = {}) {
+  return requestRaw(url, extraHeaders).then(({ statusCode, body }) => {
+    if (statusCode < 200 || statusCode >= 300) {
+      throw new Error(`Quote request failed with ${statusCode}`);
+    }
+    return JSON.parse(body);
+  });
+}
+
+let yahooAuthCache = null;
+const YAHOO_AUTH_CACHE_MS = 55 * 60 * 1000;
+
+async function getYahooAuth(force = false) {
+  if (!force && yahooAuthCache && Date.now() - yahooAuthCache.cachedAt < YAHOO_AUTH_CACHE_MS) {
+    return yahooAuthCache;
+  }
+  const cookieResponse = await requestRaw("https://fc.yahoo.com");
+  const setCookie = cookieResponse.headers["set-cookie"] || [];
+  const cookie = setCookie.map((entry) => entry.split(";")[0]).join("; ");
+  if (!cookie) throw new Error("Unable to establish a Yahoo Finance session");
+
+  const crumbResponse = await requestRaw("https://query2.finance.yahoo.com/v1/test/getcrumb", { Cookie: cookie, Accept: "*/*" });
+  const crumb = (crumbResponse.body || "").trim();
+  if (!crumb || crumb.startsWith("<")) throw new Error("Unable to obtain a Yahoo Finance crumb");
+
+  yahooAuthCache = { cookie, crumb, cachedAt: Date.now() };
+  return yahooAuthCache;
 }
 
 function requestBody(url, options, body) {
@@ -763,6 +1237,289 @@ function requestJsonPost(url, headers, payload, label) {
       ...headers
     }
   }, JSON.stringify(payload));
+}
+
+function alpacaConfigured() {
+  return Boolean(process.env.ALPACA_API_KEY_ID && process.env.ALPACA_API_SECRET_KEY);
+}
+
+function paperTradingEnabled() {
+  return process.env.ALPACA_PAPER_TRADING_ENABLED === "true" &&
+    alpacaConfigured() &&
+    ALPACA_ALLOWED_SYMBOLS.size > 0;
+}
+
+function alpacaRequest(method, pathname, payload) {
+  return new Promise((resolve, reject) => {
+    const body = payload ? JSON.stringify(payload) : "";
+    const parsed = new URL(pathname, ALPACA_PAPER_URL);
+    const request = https.request({
+      hostname: parsed.hostname,
+      path: `${parsed.pathname}${parsed.search}`,
+      method,
+      headers: {
+        Accept: "application/json",
+        "APCA-API-KEY-ID": process.env.ALPACA_API_KEY_ID || "",
+        "APCA-API-SECRET-KEY": process.env.ALPACA_API_SECRET_KEY || "",
+        ...(body ? {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body)
+        } : {})
+      }
+    }, (response) => {
+      let responseBody = "";
+      response.on("data", (chunk) => {
+        responseBody += chunk;
+      });
+      response.on("end", () => {
+        let data = null;
+        try {
+          data = responseBody ? JSON.parse(responseBody) : null;
+        } catch {
+          data = responseBody;
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          const message = data && typeof data === "object" && data.message
+            ? data.message
+            : String(responseBody || `HTTP ${response.statusCode}`).slice(0, 240);
+          const error = new Error(`Alpaca paper API rejected the request (${response.statusCode}): ${message}`);
+          error.statusCode = response.statusCode;
+          reject(error);
+          return;
+        }
+        resolve(data);
+      });
+    });
+
+    request.setTimeout(8000, () => {
+      request.destroy(new Error("Alpaca paper API request timed out"));
+    });
+    request.on("error", reject);
+    if (body) request.write(body);
+    request.end();
+  });
+}
+
+async function recentPaperTrades(limit = 20) {
+  return dbAll(`
+    SELECT symbol, signal, side, status, order_id AS orderId, detail,
+      observed_at AS observedAt, created_at AS createdAt
+    FROM paper_trade_executions
+    ORDER BY id DESC
+    LIMIT ?
+  `, [Math.max(1, Math.min(Number(limit) || 20, 50))]);
+}
+
+async function tradingStatus() {
+  const configured = alpacaConfigured();
+  return {
+    provider: "Alpaca",
+    environment: "paper",
+    configured,
+    enabled: paperTradingEnabled(),
+    enableFlag: process.env.ALPACA_PAPER_TRADING_ENABLED === "true",
+    allowedSymbols: [...ALPACA_ALLOWED_SYMBOLS],
+    buyNotional: ALPACA_BUY_NOTIONAL,
+    maxDailyOrders: ALPACA_MAX_DAILY_ORDERS,
+    sellBehavior: "Close an existing long position only",
+    recent: await recentPaperTrades()
+  };
+}
+
+async function dailyPaperOrderCount(dateKey) {
+  const rows = await dbAll(`
+    SELECT COUNT(*) AS count
+    FROM paper_trade_executions
+    WHERE status = 'submitted' AND execution_key LIKE ?
+  `, [`${dateKey}:%`]);
+  return Number(rows[0] && rows[0].count) || 0;
+}
+
+async function recordPaperExecution(execution) {
+  await dbRun(`
+    INSERT INTO paper_trade_executions (
+      execution_key, symbol, signal, side, status, order_id, detail, observed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    execution.key,
+    execution.symbol,
+    execution.signal,
+    execution.side,
+    execution.status,
+    execution.orderId || null,
+    execution.detail || null,
+    execution.observedAt
+  ]);
+}
+
+async function updatePaperExecution(key, status, orderId, detail) {
+  await dbRun(`
+    UPDATE paper_trade_executions
+    SET status = ?, order_id = ?, detail = ?
+    WHERE execution_key = ?
+  `, [status, orderId || null, detail || null, key]);
+}
+
+function paperExecutionKey(item, observedAt) {
+  return `${marketDateKey(new Date(observedAt))}:${item.symbol}:${item.executionKeyType || item.state}`;
+}
+
+async function submitPaperTrade(item, observedAt) {
+  const isBuy = item.state === "BUY SIGNAL";
+  const side = isBuy ? "buy" : "sell";
+  const key = paperExecutionKey(item, observedAt);
+  if (tradingExecutionsInFlight.has(key)) return "duplicate";
+  tradingExecutionsInFlight.add(key);
+
+  try {
+    await recordPaperExecution({
+      key,
+      symbol: item.symbol,
+      signal: item.executionLabel || item.state,
+      side,
+      status: "pending",
+      detail: isBuy ? `Buy up to $${ALPACA_BUY_NOTIONAL.toFixed(2)}` : "Close existing long position",
+      observedAt
+    });
+  } catch (error) {
+    tradingExecutionsInFlight.delete(key);
+    if (/UNIQUE constraint/i.test(error.message)) return "duplicate";
+    throw error;
+  }
+
+  try {
+    let order;
+    if (isBuy) {
+      order = await alpacaRequest("POST", "/v2/orders", {
+        symbol: item.symbol,
+        notional: ALPACA_BUY_NOTIONAL.toFixed(2),
+        side: "buy",
+        type: "market",
+        time_in_force: "day",
+        client_order_id: `rsi-${marketDateKey(new Date(observedAt)).replaceAll("-", "")}-${item.symbol}${item.orderSource ? `-${item.orderSource}` : ""}-b`
+      });
+    } else {
+      let position;
+      try {
+        position = await alpacaRequest("GET", `/v2/positions/${encodeURIComponent(item.symbol)}`);
+      } catch (error) {
+        if (error.statusCode === 404) {
+          await updatePaperExecution(key, "skipped", null, "No long position to close");
+          return "skipped";
+        }
+        throw error;
+      }
+      const quantity = Number(position && position.qty);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        await updatePaperExecution(key, "skipped", null, "No long position to close");
+        return "skipped";
+      }
+      order = await alpacaRequest("POST", "/v2/orders", {
+        symbol: item.symbol,
+        qty: String(position.qty),
+        side: "sell",
+        type: "market",
+        time_in_force: "day",
+        client_order_id: `rsi-${marketDateKey(new Date(observedAt)).replaceAll("-", "")}-${item.symbol}${item.orderSource ? `-${item.orderSource}` : ""}-s`
+      });
+    }
+    await updatePaperExecution(key, "submitted", order && order.id, order && order.status ? order.status : "Order accepted");
+    return "submitted";
+  } catch (error) {
+    await updatePaperExecution(key, "failed", null, error.message.slice(0, 500));
+    throw error;
+  } finally {
+    tradingExecutionsInFlight.delete(key);
+  }
+}
+
+async function executePaperTrades(data, observedAt) {
+  if (!paperTradingEnabled() || !Array.isArray(data) || paperTradeBatchRunning) return;
+  const signals = data.filter((item) =>
+    item &&
+    ["BUY SIGNAL", "SELL SIGNAL"].includes(item.state) &&
+    ALPACA_ALLOWED_SYMBOLS.has(item.symbol)
+  );
+  if (!signals.length) return;
+
+  paperTradeBatchRunning = true;
+  try {
+    const clock = await alpacaRequest("GET", "/v2/clock");
+    if (!clock || !clock.is_open) return;
+
+    const dateKey = marketDateKey(new Date(observedAt));
+    let dailyCount = await dailyPaperOrderCount(dateKey);
+    for (const item of signals) {
+      if (dailyCount >= ALPACA_MAX_DAILY_ORDERS) break;
+      try {
+        const result = await submitPaperTrade(item, observedAt);
+        if (result === "submitted") dailyCount += 1;
+      } catch (error) {
+        console.warn(`Paper trade failed for ${item.symbol}: ${error.message}`);
+      }
+    }
+  } finally {
+    paperTradeBatchRunning = false;
+  }
+}
+
+async function executeBulkPaperTrades(inputSymbols, side) {
+  if (!paperTradingEnabled()) {
+    throw new Error("Alpaca paper trading is not enabled and fully configured");
+  }
+  if (paperTradeBatchRunning) throw new Error("Another paper-trading batch is already running");
+
+  const normalizedSide = String(side || "").toLowerCase();
+  if (!["buy", "sell"].includes(normalizedSide)) throw new Error("Side must be buy or sell");
+  const symbols = normalizeSymbols(inputSymbols);
+  if (!symbols.length) throw new Error("Select at least one watched symbol");
+
+  const invalid = symbols.filter((symbol) =>
+    !trackedSymbols.includes(symbol) || !ALPACA_ALLOWED_SYMBOLS.has(symbol)
+  );
+  if (invalid.length) {
+    throw new Error(`Symbols must be both watched and Alpaca-allowed: ${invalid.join(", ")}`);
+  }
+
+  paperTradeBatchRunning = true;
+  try {
+    const clock = await alpacaRequest("GET", "/v2/clock");
+    if (!clock || !clock.is_open) throw new Error("The stock market is currently closed");
+
+    const observedAt = new Date().toISOString();
+    const dateKey = marketDateKey(new Date(observedAt));
+    let dailyCount = await dailyPaperOrderCount(dateKey);
+    const results = [];
+
+    for (const symbol of symbols) {
+      if (dailyCount >= ALPACA_MAX_DAILY_ORDERS) {
+        results.push({ symbol, status: "skipped", detail: "Daily paper-order limit reached" });
+        continue;
+      }
+      try {
+        const status = await submitPaperTrade({
+          symbol,
+          state: normalizedSide === "buy" ? "BUY SIGNAL" : "SELL SIGNAL",
+          executionKeyType: `BULK ${normalizedSide.toUpperCase()}`,
+          executionLabel: `MANUAL BULK ${normalizedSide.toUpperCase()}`,
+          orderSource: "bulk"
+        }, observedAt);
+        results.push({ symbol, status });
+        if (status === "submitted") dailyCount += 1;
+      } catch (error) {
+        results.push({ symbol, status: "failed", detail: error.message });
+      }
+    }
+    return {
+      provider: "Alpaca",
+      environment: "paper",
+      side: normalizedSide,
+      results,
+      recent: await recentPaperTrades()
+    };
+  } finally {
+    paperTradeBatchRunning = false;
+  }
 }
 
 function buildCrossoverAlert(item, observedAt) {
@@ -905,13 +1662,14 @@ async function notifyCrossovers(data, observedAt) {
   }));
 }
 
-async function getMarketData() {
+async function getMarketData(symbols) {
   await refreshDailyTopStocks();
-  const settled = await Promise.allSettled(trackedSymbols.map(getSymbolData));
+  const list = symbols || trackedSymbols;
+  const settled = await Promise.allSettled(list.map(getSymbolData));
   return settled.map((result, index) => {
     if (result.status === "fulfilled") return result.value;
     return {
-      symbol: trackedSymbols[index],
+      symbol: list[index],
       error: result.reason.message,
       state: "ERROR",
       updatedAt: new Date().toISOString()
@@ -957,16 +1715,9 @@ function readJsonBody(req) {
   });
 }
 
-function isAdminRequest(req, parsedUrl) {
-  if (!process.env.ADMIN_TOKEN) return true;
-  const headerToken = req.headers["x-admin-token"];
-  const queryToken = parsedUrl.searchParams.get("token");
-  return headerToken === process.env.ADMIN_TOKEN || queryToken === process.env.ADMIN_TOKEN;
-}
-
 function sendStatic(req, res) {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  const requested = parsedUrl.pathname === "/" ? "/index.html" : parsedUrl.pathname;
+  const requested = parsedUrl.pathname === "/" ? "/movers.html" : parsedUrl.pathname;
   const filePath = path.join(__dirname, "public", path.normalize(requested).replace(/^(\.\.[/\\])+/, ""));
   const ext = path.extname(filePath).toLowerCase();
   const contentType = ext === ".css" ? "text/css" : ext === ".js" ? "text/javascript" : "text/html";
@@ -985,21 +1736,33 @@ function sendStatic(req, res) {
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
-  if (req.url.startsWith("/api/market")) {
+  if (parsedUrl.pathname === "/api/market") {
     (async () => {
       try {
-        const data = await getMarketData();
+        const sessionUser = getSessionUser(req);
+        const isAdmin = Boolean(sessionUser && sessionUser.role === "admin");
+        const viewAll = isAdmin && parsedUrl.searchParams.get("view") === "all";
+        const symbolsForRequest = viewAll ? dailyTopStocks.symbols : trackedSymbols;
+
+        const data = await getMarketData(symbolsForRequest);
         const observedAt = new Date().toISOString();
-        saveMarketSnapshot(data, observedAt);
-        notifyCrossovers(data, observedAt).catch((error) => {
-          console.warn(`Notification module failed: ${error.message}`);
-        });
+        if (!viewAll) {
+          saveMarketSnapshot(data, observedAt);
+          notifyCrossovers(data, observedAt).catch((error) => {
+            console.warn(`Notification module failed: ${error.message}`);
+          });
+          executePaperTrades(data, observedAt).catch((error) => {
+            console.warn(`Paper trading module failed: ${error.message}`);
+          });
+        }
         sendJson(res, {
-          symbols: trackedSymbols,
+          symbols: symbolsForRequest,
           manualSymbols,
           topStocks: dailyTopStocks,
           updatedAt: observedAt,
-          data
+          data,
+          isAdmin,
+          viewingAll: viewAll
         });
       } catch (error) {
         res.writeHead(500, { "Content-Type": "application/json" });
@@ -1009,15 +1772,120 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (parsedUrl.pathname === "/api/auth/login" && req.method === "POST") {
+    (async () => {
+      try {
+        const body = await readJsonBody(req);
+        const username = String(body.username || "").trim();
+        const password = String(body.password || "");
+        if (!username || !password) throw new Error("Username and password are required");
+        const user = await dbGet("SELECT id, username, password_hash, role FROM users WHERE username = ?", [username]);
+        if (!user || !verifyPassword(password, user.password_hash)) {
+          sendError(res, 401, "Invalid username or password");
+          return;
+        }
+        const token = createSession(user);
+        setSessionCookie(res, token);
+        sendJson(res, { username: user.username, role: user.role });
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/auth/logout" && req.method === "POST") {
+    destroySession(req);
+    clearSessionCookie(res);
+    sendJson(res, { success: true });
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/auth/me") {
+    const sessionUser = getSessionUser(req);
+    sendJson(res, sessionUser ? { username: sessionUser.username, role: sessionUser.role } : { username: null, role: null });
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/admin/users") {
+    if (!requireAdminUser(req)) {
+      sendError(res, 401, "Admin sign-in is required");
+      return;
+    }
+    (async () => {
+      try {
+        if (req.method === "GET") {
+          const users = await dbAll("SELECT id, username, role, created_at AS createdAt FROM users ORDER BY username");
+          sendJson(res, { users });
+          return;
+        }
+        if (req.method === "POST") {
+          const body = await readJsonBody(req);
+          const username = String(body.username || "").trim();
+          const password = String(body.password || "");
+          const role = body.role === "admin" ? "admin" : "user";
+          if (username.length < 3) throw new Error("Username must be at least 3 characters");
+          if (password.length < 6) throw new Error("Password must be at least 6 characters");
+          await dbRun("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", [username, hashPassword(password), role]);
+          const users = await dbAll("SELECT id, username, role, created_at AS createdAt FROM users ORDER BY username");
+          sendJson(res, { users });
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
+      } catch (error) {
+        const message = /UNIQUE constraint failed/.test(error.message) ? "That username is already taken" : error.message;
+        sendError(res, 400, message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname.startsWith("/api/admin/users/")) {
+    if (!requireAdminUser(req)) {
+      sendError(res, 401, "Admin sign-in is required");
+      return;
+    }
+    (async () => {
+      try {
+        if (req.method !== "DELETE") {
+          sendError(res, 405, "Method not allowed");
+          return;
+        }
+        const id = Number(parsedUrl.pathname.split("/").pop());
+        const target = await dbGet("SELECT id, role FROM users WHERE id = ?", [id]);
+        if (!target) throw new Error("User not found");
+        if (target.role === "admin") {
+          const adminCountRow = await dbGet("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'");
+          if (adminCountRow && adminCountRow.count <= 1) throw new Error("Cannot remove the last admin");
+        }
+        await dbRun("DELETE FROM users WHERE id = ?", [id]);
+        const users = await dbAll("SELECT id, username, role, created_at AS createdAt FROM users ORDER BY username");
+        sendJson(res, { users });
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/market-ticker") {
+    (async () => {
+      try {
+        const force = parsedUrl.searchParams.get("refresh") === "1";
+        sendJson(res, await getMarketTicker(force));
+      } catch (error) {
+        sendError(res, 500, error.message);
+      }
+    })();
+    return;
+  }
+
   if (parsedUrl.pathname === "/api/top-stocks") {
     (async () => {
       try {
         const force = parsedUrl.searchParams.get("refresh") === "1";
-        sendJson(res, {
-          topStocks: await refreshDailyTopStocks(force),
-          symbols: trackedSymbols,
-          manualSymbols
-        });
+        await refreshDailyTopStocks(force);
+        sendJson(res, watchlistPayload());
       } catch (error) {
         sendError(res, 500, error.message);
       }
@@ -1043,16 +1911,97 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (parsedUrl.pathname === "/api/trading") {
+    if (!requireAdminUser(req)) {
+      sendError(res, 401, "Admin sign-in is required");
+      return;
+    }
+    (async () => {
+      try {
+        sendJson(res, await tradingStatus());
+      } catch (error) {
+        sendError(res, 500, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/admin/watchlist") {
+    if (!requireAdminUser(req)) {
+      sendError(res, 401, "Admin sign-in is required");
+      return;
+    }
+    (async () => {
+      try {
+        if (req.method === "GET") {
+          sendJson(res, watchlistPayload());
+          return;
+        }
+        if (req.method === "PUT") {
+          const payload = await readJsonBody(req);
+          await saveWatchlistSelection(payload.symbols);
+          sendJson(res, watchlistPayload());
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/admin/watchlist/symbols") {
+    if (!requireAdminUser(req)) {
+      sendError(res, 401, "Admin sign-in is required");
+      return;
+    }
+    (async () => {
+      try {
+        if (req.method !== "POST") {
+          sendError(res, 405, "Method not allowed");
+          return;
+        }
+        const payload = await readJsonBody(req);
+        await addManualWatchlistSymbols(payload.symbols);
+        sendJson(res, watchlistPayload());
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/admin/trading/bulk") {
+    if (!requireAdminUser(req)) {
+      sendError(res, 401, "Admin sign-in is required");
+      return;
+    }
+    (async () => {
+      try {
+        if (req.method !== "POST") {
+          sendError(res, 405, "Method not allowed");
+          return;
+        }
+        const payload = await readJsonBody(req);
+        sendJson(res, await executeBulkPaperTrades(payload.symbols, payload.side));
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
   if (parsedUrl.pathname === "/api/admin/whatsapp-groups") {
-    if (!isAdminRequest(req, parsedUrl)) {
-      sendError(res, 401, "Admin token is required");
+    if (!requireAdminUser(req)) {
+      sendError(res, 401, "Admin sign-in is required");
       return;
     }
     (async () => {
       try {
         if (req.method === "GET") {
           sendJson(res, {
-            protected: Boolean(process.env.ADMIN_TOKEN),
+            protected: true,
             groups: await getWhatsAppGroups(true)
           });
           return;
@@ -1073,8 +2022,8 @@ const server = http.createServer((req, res) => {
   }
 
   if (parsedUrl.pathname.startsWith("/api/admin/whatsapp-groups/")) {
-    if (!isAdminRequest(req, parsedUrl)) {
-      sendError(res, 401, "Admin token is required");
+    if (!requireAdminUser(req)) {
+      sendError(res, 401, "Admin sign-in is required");
       return;
     }
     (async () => {
@@ -1105,6 +2054,33 @@ const server = http.createServer((req, res) => {
       } catch (error) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: error.message }));
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/options-analysis") {
+    (async () => {
+      try {
+        sendJson(res, await getOptionStrategyAnalysis(
+          parsedUrl.searchParams.get("symbol") || DEFAULT_SYMBOLS[0]
+        ));
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/option-chain") {
+    (async () => {
+      try {
+        sendJson(res, await getOptionChain(
+          parsedUrl.searchParams.get("symbol") || DEFAULT_SYMBOLS[0],
+          parsedUrl.searchParams.get("expiration")
+        ));
+      } catch (error) {
+        sendError(res, 400, error.message);
       }
     })();
     return;
@@ -1145,34 +2121,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && req.url.startsWith("/api/symbols")) {
-    let body = "";
-    let tooLarge = false;
-    req.on("data", (chunk) => {
-      if (tooLarge) return;
-      body += chunk;
-      if (body.length > MAX_POST_BYTES) {
-        tooLarge = true;
-      }
-    });
-    req.on("end", () => {
-      if (tooLarge) {
-        res.writeHead(413, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Request body is too large" }));
-        return;
-      }
-
-      try {
-        const payload = body ? JSON.parse(body) : {};
-        const symbols = addTrackedSymbols(payload.symbols);
-        sendJson(res, {
-          symbols,
-          updatedAt: new Date().toISOString()
-        });
-      } catch (error) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: error.message }));
-      }
-    });
+    sendError(res, 403, "Watchlist symbols must be selected on the Admin page");
     return;
   }
 

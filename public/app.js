@@ -9,10 +9,16 @@ const extendedCount = document.getElementById("extendedCount");
 const topStockCount = document.getElementById("topStockCount");
 const updatedAt = document.getElementById("updatedAt");
 const symbolForm = document.getElementById("symbolForm");
-const symbolInput = document.getElementById("symbolInput");
 const symbolStatus = document.getElementById("symbolStatus");
+const showAllToggle = document.getElementById("showAllToggle");
+const showAllCheckbox = document.getElementById("showAllCheckbox");
 const sortButtons = Array.from(document.querySelectorAll(".sort-btn"));
-const symbolSuggestions = document.getElementById("symbolSuggestions");
+const signalAlert = document.getElementById("signalAlert");
+const signalAlertClose = document.getElementById("signalAlertClose");
+const signalAlertDismiss = document.getElementById("signalAlertDismiss");
+const signalAlertType = document.getElementById("signalAlertType");
+const signalAlertTitle = document.getElementById("signalAlertTitle");
+const signalAlertList = document.getElementById("signalAlertList");
 
 const refreshSeconds = 5;
 let nextRefresh = refreshSeconds;
@@ -20,7 +26,96 @@ let latestData = null;
 let sortState = { key: "updatedAt", direction: "desc" };
 let isRefreshing = false;
 let pendingRefresh = false;
-let symbolSearch;
+let audioContext;
+let showAll = false;
+const signalStateKey = "marketRsiDashboard.signalStates";
+
+function readSignalStates() {
+  try {
+    return JSON.parse(localStorage.getItem(signalStateKey)) || {};
+  } catch {
+    return {};
+  }
+}
+
+let previousSignalStates = readSignalStates();
+
+function armAlertSound() {
+  if (!audioContext) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) audioContext = new AudioContext();
+  }
+  if (audioContext && audioContext.state === "suspended") audioContext.resume().catch(() => {});
+}
+
+function playAlertSound(side) {
+  armAlertSound();
+  if (!audioContext || audioContext.state !== "running") return;
+
+  const start = audioContext.currentTime;
+  const notes = side === "buy" ? [523.25, 659.25, 783.99] : [783.99, 659.25, 523.25];
+  notes.forEach((frequency, index) => {
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const noteStart = start + index * 0.14;
+    oscillator.type = "sine";
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.0001, noteStart);
+    gain.gain.exponentialRampToValueAtTime(0.18, noteStart + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.12);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(noteStart);
+    oscillator.stop(noteStart + 0.13);
+  });
+}
+
+function closeSignalAlert() {
+  signalAlert.hidden = true;
+}
+
+function showSignalAlert(signals) {
+  if (!signals.length) return;
+  const hasBuy = signals.some((item) => item.state === "BUY SIGNAL");
+  const hasSell = signals.some((item) => item.state === "SELL SIGNAL");
+  const side = hasBuy && !hasSell ? "buy" : hasSell && !hasBuy ? "sell" : "mixed";
+
+  signalAlert.className = `signal-alert ${side}`;
+  signalAlertType.textContent = side === "mixed" ? "BUY & SELL" : side.toUpperCase();
+  signalAlertTitle.textContent = signals.length === 1
+    ? `${signals[0].state}: ${signals[0].symbol}`
+    : `${signals.length} new trading signals`;
+  signalAlertList.replaceChildren(...signals.map((item) => {
+    const row = document.createElement("div");
+    const name = document.createElement("strong");
+    const details = document.createElement("span");
+    name.textContent = `${item.symbol} — ${item.state}`;
+    details.textContent = `RSI ${Number.isFinite(item.rsi) ? item.rsi.toFixed(2) : "--"} · Price ${formatMoney(item.price)}`;
+    row.append(name, details);
+    return row;
+  }));
+  signalAlert.hidden = false;
+  signalAlertDismiss.focus();
+  playAlertSound(side === "mixed" ? "buy" : side);
+}
+
+function alertForNewSignals(items) {
+  const newStates = {};
+  const signals = [];
+
+  items.forEach((item) => {
+    newStates[item.symbol] = item.state;
+    const isSignal = item.state === "BUY SIGNAL" || item.state === "SELL SIGNAL";
+    if (isSignal && previousSignalStates[item.symbol] !== item.state) signals.push(item);
+  });
+
+  previousSignalStates = newStates;
+  try {
+    localStorage.setItem(signalStateKey, JSON.stringify(newStates));
+  } catch {
+    // Alerts still work for this page session if storage is unavailable.
+  }
+  showSignalAlert(signals);
+}
 
 function formatMoney(value) {
   if (!Number.isFinite(value)) return "--";
@@ -119,11 +214,12 @@ function render(data) {
   const items = [...(data.data || [])].sort(compareItems);
   const trackedSymbols = Array.isArray(data.symbols) ? data.symbols : [];
   const topStocks = data.topStocks && Array.isArray(data.topStocks.symbols) ? data.topStocks : null;
-  const manualSymbols = Array.isArray(data.manualSymbols) ? data.manualSymbols : [];
   const buySignals = items.filter((item) => item.state === "BUY SIGNAL").length;
   const sellSignals = items.filter((item) => item.state === "SELL SIGNAL").length;
   const oversold = items.filter((item) => item.state === "OVERSOLD").length;
   const extended = items.filter((item) => item.state === "EXTENDED").length;
+
+  alertForNewSignals(items);
 
   buySignalCount.textContent = buySignals;
   sellSignalCount.textContent = sellSignals;
@@ -133,12 +229,11 @@ function render(data) {
   updatedAt.textContent = formatTime(data.updatedAt);
   if (trackedSymbols.length) {
     const source = topStocks ? topStocks.source : "watchlist";
-    const topText = topStocks && topStocks.symbols.length
-      ? `Daily top ${topStocks.symbols.length}: ${topStocks.symbols.join(", ")}`
-      : `Tracking ${trackedSymbols.length} symbols: ${trackedSymbols.join(", ")}`;
-    const manualText = manualSymbols.length ? ` Manual additions: ${manualSymbols.join(", ")}.` : "";
+    const topText = data.viewingAll
+      ? `Showing the full daily list: ${trackedSymbols.length} stocks`
+      : `Tracking ${trackedSymbols.length} Admin-selected stocks: ${trackedSymbols.join(", ")}`;
     const errorText = topStocks && topStocks.error ? ` Top list fallback: ${topStocks.error}.` : "";
-    symbolStatus.textContent = `${topText}. Source: ${source}.${manualText}${errorText}`;
+    symbolStatus.textContent = `${topText}. Source: ${source}.${errorText}`;
   } else {
     symbolStatus.textContent = "No symbols are being tracked yet.";
   }
@@ -200,7 +295,8 @@ async function loadData() {
   statusText.textContent = "Refreshing";
   countdown.textContent = "now";
   try {
-    const response = await fetch("/api/market", { cache: "no-store" });
+    const url = showAll ? "/api/market?view=all" : "/api/market";
+    const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`Request failed with ${response.status}`);
     const data = await response.json();
     render(data);
@@ -221,42 +317,16 @@ async function loadData() {
   }
 }
 
-symbolForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  let value = symbolInput.value.trim();
-  if (!value) return;
-
-  symbolStatus.textContent = "Adding symbols...";
-  try {
-    if (!value.includes(",") && window.resolveStockSymbol) {
-      value = await window.resolveStockSymbol(value);
-    }
-    const response = await fetch("/api/symbols", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: value })
-    });
-    if (!response.ok) throw new Error(`Request failed with ${response.status}`);
-    const result = await response.json();
-    symbolInput.value = "";
-    if (symbolSearch) symbolSearch.hide();
-    if (Array.isArray(result.symbols) && result.symbols.length) {
-      symbolStatus.textContent = `Tracking ${result.symbols.length} symbols: ${result.symbols.join(", ")}`;
-    } else {
-      symbolStatus.textContent = "No symbols are being tracked yet.";
-    }
-    await loadData();
-  } catch (error) {
-    symbolStatus.textContent = error.message;
-  }
+signalAlertClose.addEventListener("click", closeSignalAlert);
+signalAlertDismiss.addEventListener("click", closeSignalAlert);
+signalAlert.addEventListener("click", (event) => {
+  if (event.target === signalAlert) closeSignalAlert();
 });
-
-if (window.createStockSearch && symbolSuggestions) {
-  symbolSearch = window.createStockSearch({
-    input: symbolInput,
-    suggestions: symbolSuggestions
-  });
-}
+document.addEventListener("keydown", (event) => {
+  armAlertSound();
+  if (event.key === "Escape" && !signalAlert.hidden) closeSignalAlert();
+}, { once: false });
+document.addEventListener("pointerdown", armAlertSound, { once: true });
 
 setInterval(() => {
   nextRefresh -= 1;
@@ -272,6 +342,24 @@ document.addEventListener("visibilitychange", () => {
     loadData();
   }
 });
+
+if (showAllToggle && showAllCheckbox) {
+  document.addEventListener("account:ready", (event) => {
+    const user = event.detail;
+    if (user && user.role === "admin") {
+      showAllToggle.hidden = false;
+    } else {
+      showAllToggle.hidden = true;
+      showAll = false;
+      showAllCheckbox.checked = false;
+    }
+  });
+
+  showAllCheckbox.addEventListener("change", () => {
+    showAll = showAllCheckbox.checked;
+    loadData();
+  });
+}
 
 updateSortHeaders();
 loadData();

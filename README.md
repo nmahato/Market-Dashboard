@@ -11,7 +11,7 @@ npm start
 Open:
 
 ```text
-http://localhost:4177
+http://localhost:4178
 ```
 
 ## Signals
@@ -26,7 +26,7 @@ The dashboard refreshes every 5 seconds.
 
 ## Daily top 10 watchlist
 
-Each day the server refreshes the RSI Watch list from Yahoo Finance `most_actives` and tracks the top 10 symbols of the day. Manually added symbols are kept in addition to that daily top 10 until the server restarts. Check or force-refresh the list at `/api/top-stocks`; use `/api/top-stocks?refresh=1` to refresh immediately.
+Each day the server refreshes the Daily Top 10 list from Yahoo Finance `most_actives`. The Admin page can also add stocks manually by company name or ticker symbol; autocomplete results show both. Added tickers are selected immediately and stored in SQLite. Check the automatic or manual stocks you want and select **Save Watchlist**; only selected symbols appear on RSI Watch. Check or force-refresh the automatic list at `/api/top-stocks`; use `/api/top-stocks?refresh=1` to refresh immediately.
 
 ## Crossover notifications
 
@@ -67,6 +67,39 @@ Open `/admin.html` to add WhatsApp group notification webhooks. The group must h
 ## SQLite snapshots
 
 On startup the server creates a SQLite database at `data/market-watch.sqlite`, or at `SQLITE_DB_PATH` if that environment variable is set. Every `/api/market` refresh inserts the latest watchlist rows into the `market_snapshots` table.
+
+## Alpaca paper trading
+
+The dashboard can send RSI crossover orders to an Alpaca paper account. It is disabled unless all settings below are present:
+
+```text
+ALPACA_API_KEY_ID=your-paper-key
+ALPACA_API_SECRET_KEY=your-paper-secret
+ALPACA_PAPER_TRADING_ENABLED=true
+ALPACA_ALLOWED_SYMBOLS=AAPL,MSFT,NVDA
+ALPACA_BUY_NOTIONAL=100
+ALPACA_MAX_DAILY_ORDERS=3
+```
+
+Use paper-account credentials only. `BUY SIGNAL` submits a market buy for the configured notional. `SELL SIGNAL` closes an existing long position and never opens a short. Orders run only while Alpaca reports the market open, only for explicitly allowed symbols, and at most once per symbol and signal each New York trading date. Execution attempts are stored in `paper_trade_executions`; status is available at `/api/trading` and on the Admin page.
+
+Start with `ALPACA_PAPER_TRADING_ENABLED=false`, confirm the Admin page shows the expected paper configuration, and enable it only after reviewing the symbol allowlist and limits.
+
+For a local PowerShell session, set the values before starting the server:
+
+```powershell
+$env:ALPACA_API_KEY_ID="your-paper-key"
+$env:ALPACA_API_SECRET_KEY="your-paper-secret"
+$env:ALPACA_ALLOWED_SYMBOLS="AAPL,MSFT,NVDA"
+$env:ALPACA_PAPER_TRADING_ENABLED="false"
+npm start
+```
+
+Restart the server after changing any trading setting. Never commit paper-account keys to the repository.
+
+### Bulk paper orders
+
+The Admin page includes an **Alpaca Paper Trading** bulk Buy/Sell section. It lists only stocks that are both selected for RSI Watch and present in `ALPACA_ALLOWED_SYMBOLS`. Bulk buys use `ALPACA_BUY_NOTIONAL` for each selected stock. Bulk sells close existing long positions and do not open shorts. Every submission requires browser confirmation and shares the configured daily order limit. A symbol can receive one manual bulk buy and one manual bulk sell per New York trading date.
 
 ## CI/CD
 

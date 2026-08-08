@@ -17,6 +17,13 @@ const chartPanel = document.querySelector(".chart-panel");
 const chartStyle = document.getElementById("chartStyle");
 const expandChart = document.getElementById("expandChart");
 const resetChart = document.getElementById("resetChart");
+const zoomInChart = document.getElementById("zoomInChart");
+const zoomOutChart = document.getElementById("zoomOutChart");
+const overlayVwap = document.getElementById("overlayVwap");
+const overlayEma9 = document.getElementById("overlayEma9");
+const overlayEma21 = document.getElementById("overlayEma21");
+const overlaySma20 = document.getElementById("overlaySma20");
+const overlayVolume = document.getElementById("overlayVolume");
 
 let latestResults = [];
 let isLoadingLive = false;
@@ -33,6 +40,7 @@ class TradingIndicatorService {
     let cumulativeVolume = 0;
     const ema9Values = this.calculateEMA(candles.map((item) => item.close), 9);
     const ema21Values = this.calculateEMA(candles.map((item) => item.close), 21);
+    const sma20Values = this.calculateSMA(candles.map((item) => item.close), 20);
 
     for (let i = 0; i < candles.length; i += 1) {
       const candle = candles[i];
@@ -43,6 +51,7 @@ class TradingIndicatorService {
       const vwap = cumulativeVolume ? cumulativePV / cumulativeVolume : 0;
       const ema9 = ema9Values[i];
       const ema21 = ema21Values[i];
+      const sma20 = sma20Values[i];
       const avgVolume = this.averageVolume(candles, i, 20);
       const buySignal = candle.close > vwap &&
         ema9 > ema21 &&
@@ -77,6 +86,7 @@ class TradingIndicatorService {
         vwap,
         ema9,
         ema21,
+        sma20,
         buySignal,
         sellSignal,
         entryPrice,
@@ -100,6 +110,17 @@ class TradingIndicatorService {
       }
     });
     return ema;
+  }
+
+  calculateSMA(values, period) {
+    const sma = [];
+    let sum = 0;
+    for (let i = 0; i < values.length; i += 1) {
+      sum += values[i];
+      if (i >= period) sum -= values[i - period];
+      sma.push(i >= period - 1 ? sum / period : undefined);
+    }
+    return sma;
   }
 
   averageVolume(candles, index, period) {
@@ -251,18 +272,11 @@ function getChartZoomWindow(totalCount) {
   };
 }
 
-function zoomSignalChart(event) {
+function applyChartZoom(zoomFactor, cursorRatio = 0.5) {
   if (!Array.isArray(latestResults) || latestResults.length < 3) return;
-  event.preventDefault();
-
-  const rect = indicatorChart.getBoundingClientRect();
-  const cursorRatio = rect.width
-    ? clamp((event.clientX - rect.left) / rect.width, 0, 1)
-    : 0.5;
   const currentStart = clamp(chartZoom.start, 0, 1);
   const currentEnd = clamp(chartZoom.end, currentStart, 1);
   const currentSpan = currentEnd - currentStart || 1;
-  const zoomFactor = event.deltaY < 0 ? 0.78 : 1.28;
   const minSpan = Math.min(1, Math.max(2 / latestResults.length, 0.025));
   const nextSpan = clamp(currentSpan * zoomFactor, minSpan, 1);
   const anchor = currentStart + currentSpan * cursorRatio;
@@ -285,6 +299,16 @@ function zoomSignalChart(event) {
   renderSignalChart(latestResults);
 }
 
+function zoomSignalChart(event) {
+  if (!Array.isArray(latestResults) || latestResults.length < 3) return;
+  event.preventDefault();
+  const rect = indicatorChart.getBoundingClientRect();
+  const cursorRatio = rect.width
+    ? clamp((event.clientX - rect.left) / rect.width, 0, 1)
+    : 0.5;
+  applyChartZoom(event.deltaY < 0 ? 0.78 : 1.28, cursorRatio);
+}
+
 function renderSignalChart(results) {
   if (!Array.isArray(results) || results.length < 2) {
     indicatorChart.innerHTML = "<p>No candle data calculated yet.</p>";
@@ -302,13 +326,27 @@ function renderSignalChart(results) {
   }
   results = visibleResults;
 
+  const showVwap = overlayVwap ? overlayVwap.checked : true;
+  const showEma9 = overlayEma9 ? overlayEma9.checked : true;
+  const showEma21 = overlayEma21 ? overlayEma21.checked : true;
+  const showSma20 = overlaySma20 ? overlaySma20.checked : true;
+  const showVolumeBars = overlayVolume ? overlayVolume.checked : true;
+
   const width = 1040;
-  const height = 420;
+  const height = 480;
   const padding = { top: 24, right: 72, bottom: 42, left: 58 };
+  const volumeAreaHeight = showVolumeBars ? 90 : 0;
+  const volumeGap = showVolumeBars ? 14 : 0;
   const plotWidth = width - padding.left - padding.right;
-  const plotHeight = height - padding.top - padding.bottom;
-  const priceValues = results.flatMap((item) => [item.high, item.low, item.vwap, item.ema9, item.ema21])
-    .filter(Number.isFinite);
+  const plotHeight = height - padding.top - padding.bottom - volumeAreaHeight - volumeGap;
+  const priceValues = results.flatMap((item) => [
+    item.high,
+    item.low,
+    showVwap ? item.vwap : null,
+    showEma9 ? item.ema9 : null,
+    showEma21 ? item.ema21 : null,
+    showSma20 ? item.sma20 : null
+  ]).filter(Number.isFinite);
   const minPrice = Math.min(...priceValues);
   const maxPrice = Math.max(...priceValues);
   const priceRange = maxPrice - minPrice || 1;
@@ -325,17 +363,38 @@ function renderSignalChart(results) {
   const vwapPoints = pointsFor(results.map((item) => item.vwap), xForIndex, yForValue);
   const ema9Points = pointsFor(results.map((item) => item.ema9), xForIndex, yForValue);
   const ema21Points = pointsFor(results.map((item) => item.ema21), xForIndex, yForValue);
+  const sma20Points = pointsFor(results.map((item) => item.sma20), xForIndex, yForValue);
   const mode = chartStyle ? chartStyle.value : "candles";
   const showCandles = mode === "candles" || mode === "both";
   const showCloseLine = mode === "line" || mode === "both";
   const lastIndex = results.length - 1;
   const labelX = Math.min(width - padding.right + 8, xForIndex(lastIndex) + 10);
-  const labelData = [
-    ["Close", results[lastIndex].close, "price-label"],
-    ["VWAP", results[lastIndex].vwap, "vwap-label"],
-    ["EMA9", results[lastIndex].ema9, "ema9-label"],
-    ["EMA21", results[lastIndex].ema21, "ema21-label"]
-  ];
+  const labelData = [["Close", results[lastIndex].close, "price-label"]];
+  if (showVwap) labelData.push(["VWAP", results[lastIndex].vwap, "vwap-label"]);
+  if (showEma9) labelData.push(["EMA9", results[lastIndex].ema9, "ema9-label"]);
+  if (showEma21) labelData.push(["EMA21", results[lastIndex].ema21, "ema21-label"]);
+  if (showSma20) labelData.push(["SMA20", results[lastIndex].sma20, "sma20-label"]);
+
+  let volumeMarkup = "";
+  if (showVolumeBars) {
+    const volumeTop = padding.top + plotHeight + volumeGap;
+    const volumeBottom = height - padding.bottom;
+    const volumeValues = results.map((item) => item.volume).filter(Number.isFinite);
+    const maxVolume = volumeValues.length ? Math.max(...volumeValues) : 1;
+    const yForVolume = (volume) => volumeBottom - (Math.max(0, volume) / (maxVolume || 1)) * volumeAreaHeight;
+    const bars = results.map((item, index) => {
+      const x = xForIndex(index);
+      const barTop = Number.isFinite(item.volume) ? yForVolume(item.volume) : volumeBottom;
+      const barHeight = Math.max(1, volumeBottom - barTop);
+      const directionClass = item.close >= item.open ? "up" : "down";
+      return `<rect class="volume-bar ${directionClass}" x="${(x - candleBodyWidth / 2).toFixed(2)}" y="${barTop.toFixed(2)}" width="${candleBodyWidth.toFixed(2)}" height="${barHeight.toFixed(2)}"></rect>`;
+    }).join("");
+    volumeMarkup = `
+      ${bars}
+      <text class="volume-axis-label" x="${padding.left}" y="${(volumeTop - 6).toFixed(2)}">Volume</text>
+      <text class="volume-axis-label" x="${width - padding.right}" y="${(volumeTop - 6).toFixed(2)}" text-anchor="end">${formatNumber(maxVolume, 0)}</text>
+    `;
+  }
 
   const candleMarkup = results.map((item, index) => {
     const x = xForIndex(index);
@@ -384,16 +443,18 @@ function renderSignalChart(results) {
     ? `${results.length} of ${totalCount} candles from ${firstTime} to ${lastTime}.`
     : `${results.length} candles from ${firstTime} to ${lastTime}.`;
   indicatorChart.innerHTML = `
-    <svg class="signal-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Candlestick chart with VWAP and EMA overlays">
+    <svg class="signal-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Candlestick chart with VWAP, EMA, SMA overlays and volume">
       <rect class="chart-bg" x="0" y="0" width="${width}" height="${height}"></rect>
       ${gridMarkup}
       <text class="chart-axis" x="${padding.left}" y="${height - 12}">${escapeHtml(firstTime)}</text>
       <text class="chart-axis" x="${width - padding.right}" y="${height - 12}" text-anchor="end">${escapeHtml(lastTime)}</text>
       ${showCandles ? candleMarkup : ""}
       ${showCloseLine ? `<polyline class="price-line" points="${closePoints}"></polyline>` : ""}
-      <polyline class="vwap-line" points="${vwapPoints}"></polyline>
-      <polyline class="ema9-line" points="${ema9Points}"></polyline>
-      <polyline class="ema21-line" points="${ema21Points}"></polyline>
+      ${showVwap ? `<polyline class="vwap-line" points="${vwapPoints}"></polyline>` : ""}
+      ${showEma9 ? `<polyline class="ema9-line" points="${ema9Points}"></polyline>` : ""}
+      ${showEma21 ? `<polyline class="ema21-line" points="${ema21Points}"></polyline>` : ""}
+      ${showSma20 ? `<polyline class="sma20-line" points="${sma20Points}"></polyline>` : ""}
+      ${volumeMarkup}
       ${lineLabels}
       ${markerMarkup}
     </svg>
@@ -583,6 +644,12 @@ if (chartStyle) {
   });
 }
 
+[overlayVwap, overlayEma9, overlayEma21, overlaySma20, overlayVolume].forEach((checkbox) => {
+  if (checkbox) {
+    checkbox.addEventListener("change", () => renderSignalChart(latestResults));
+  }
+});
+
 if (expandChart && chartPanel) {
   expandChart.addEventListener("click", () => {
     chartPanel.classList.toggle("expanded");
@@ -596,10 +663,21 @@ if (resetChart) {
     if (chartStyle) chartStyle.value = "candles";
     if (chartPanel) chartPanel.classList.remove("expanded");
     if (expandChart) expandChart.textContent = "Expand";
+    [overlayVwap, overlayEma9, overlayEma21, overlaySma20, overlayVolume].forEach((checkbox) => {
+      if (checkbox) checkbox.checked = true;
+    });
     resetChartZoom();
     indicatorChart.scrollLeft = 0;
     renderSignalChart(latestResults);
   });
+}
+
+if (zoomInChart) {
+  zoomInChart.addEventListener("click", () => applyChartZoom(0.78));
+}
+
+if (zoomOutChart) {
+  zoomOutChart.addEventListener("click", () => applyChartZoom(1.28));
 }
 
 indicatorChart.addEventListener("wheel", zoomSignalChart, { passive: false });

@@ -15,9 +15,11 @@
         </div>
         <div class="topbar-actions">
           <nav class="page-nav" aria-label="Dashboard pages">
-            <a href="/" aria-current="page">RSI Watch</a>
+            <a href="/index.html" aria-current="page">RSI Watch</a>
+            <a href="/">Movers</a>
             <a href="/search.html">Search</a>
             <a href="/indicator.html">Signals</a>
+            <a href="/options.html">Options</a>
             <a href="/news.html">News</a>
             <a href="/admin.html">Admin</a>
           </nav>
@@ -57,15 +59,12 @@
       </section>
 
       <section class="symbol-controls">
-        <form id="symbolForm" class="symbol-form">
-          <label for="symbolInput">Add symbols</label>
-          <div class="stock-search">
-            <input id="symbolInput" name="symbols" type="text" placeholder="e.g. Apple, GOOG, Tesla" autocomplete="off">
-            <div id="symbolSuggestions" class="stock-suggestions" hidden></div>
-          </div>
-          <button type="submit">Add</button>
-        </form>
-        <p id="symbolStatus" class="helper-text">Tracking the default watchlist.</p>
+        <p id="symbolStatus" class="helper-text">Loading the Admin-selected watchlist.</p>
+        <label id="showAllToggle" class="toggle-control" hidden>
+          <input id="showAllCheckbox" type="checkbox">
+          Show full daily list (Admin)
+        </label>
+        <a href="/admin.html">Choose watched stocks in Admin</a>
       </section>
 
       <section class="table-wrap">
@@ -92,6 +91,18 @@
         </table>
       </section>
     </main>
+
+    <div id="signalAlert" class="signal-alert" role="alertdialog" aria-modal="true" aria-labelledby="signalAlertTitle" hidden>
+      <div class="signal-alert-card">
+        <button id="signalAlertClose" class="signal-alert-close" type="button" aria-label="Close signal alert">&times;</button>
+        <span id="signalAlertType" class="signal-alert-type"></span>
+        <h2 id="signalAlertTitle">Trading signal</h2>
+        <div id="signalAlertList" class="signal-alert-list"></div>
+        <button id="signalAlertDismiss" type="button">Got it</button>
+      </div>
+    </div>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
     <script src="/stock-search.js"></script>
     <script src="/app.js"></script>
   </body>
