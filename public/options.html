@@ -2,91 +2,87 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Options Chain</title>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/options-chain.css">
   </head>
   <body class="chain-page">
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <h1>Options</h1>
-         
-        </div>
-        <div class="topbar-actions">
-          <nav class="page-nav" aria-label="Dashboard pages">
-            <a href="/index.html">RSI Watch</a>
-            <a href="/">Movers</a>
-            <a href="/search.html">Search</a>
-            <a href="/indicator.html">Signals</a>
-            <a href="/options.html" aria-current="page">Options</a>
-            <a href="/news.html">News</a>
-            <a href="/admin.html">Admin</a>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Options</h1>
+          </div>
+        </header>
+
+        <div class="page-content">
+          <nav class="strategy-tabs" aria-label="Option strategies">
+            <a href="/options.html" aria-current="page">Chain</a>
+            <a href="/strategies.html">Strategy Lab</a>
           </nav>
+
+          <section class="chain-symbol-search">
+            <label for="chainSymbolInput" class="sr-only">Underlying</label>
+            <div class="stock-search">
+              <input id="chainSymbolInput" value="TSLA" maxlength="10" autocomplete="off" placeholder="Symbol">
+              <div id="chainSymbolSuggestions" class="stock-suggestions" hidden></div>
+            </div>
+          </section>
+
+          <section class="chain-topline">
+            <div class="chain-quote">
+              <span id="chainSymbol" class="chain-symbol">--</span>
+              <span id="chainPrice" class="chain-price">--</span>
+              <span id="chainChange" class="chain-change">--</span>
+            </div>
+            <a id="chainHistoryLink" class="chain-history-btn" href="/chart.html?symbol=TSLA">
+              <span aria-hidden="true">&#8599;</span> Price History
+            </a>
+          </section>
+
+          <h2 id="chainTitle" class="chain-title">Loading...</h2>
+
+          <section class="chain-controls">
+            <a id="chainBuilderLink" class="chain-builder-btn" href="/strategies.html">
+              <span aria-hidden="true">&#9776;</span> Builder
+            </a>
+            <div class="chain-segmented" role="group" aria-label="Buy or sell">
+              <button type="button" class="chain-seg-btn active" data-side="buy">Buy</button>
+              <button type="button" class="chain-seg-btn" data-side="sell">Sell</button>
+            </div>
+            <div class="chain-segmented" role="group" aria-label="Call or put">
+              <button type="button" class="chain-seg-btn active" data-type="call">Call</button>
+              <button type="button" class="chain-seg-btn" data-type="put">Put</button>
+            </div>
+            <select id="chainExpirationSelect" class="chain-expiry-select" aria-label="Expiration date"></select>
+          </section>
+
+          <section class="chain-table-wrap">
+            <table class="chain-table">
+              <thead>
+                <tr>
+                  <th>Strike price</th>
+                  <th>Breakeven</th>
+                  <th>To breakeven</th>
+                  <th>% Change</th>
+                  <th>Change</th>
+                  <th id="chainPriceColumnHeader">Ask Price</th>
+                </tr>
+              </thead>
+              <tbody id="chainRows">
+                <tr><td colspan="6" class="loading">Loading option chain...</td></tr>
+              </tbody>
+            </table>
+          </section>
+          <p id="chainStatus" class="helper-text">Loading option chain...</p>
         </div>
-      </header>
-
-      <nav class="strategy-tabs" aria-label="Option strategies">
-        <a href="/options.html" aria-current="page">Chain</a>
-               <a href="/strategies.html">Strategy Lab</a>
-      </nav>
-
-      <section class="chain-symbol-search">
-        <label for="chainSymbolInput" class="sr-only">Underlying</label>
-        <div class="stock-search">
-          <input id="chainSymbolInput" value="TSLA" maxlength="10" autocomplete="off" placeholder="Symbol">
-          <div id="chainSymbolSuggestions" class="stock-suggestions" hidden></div>
-        </div>
-      </section>
-
-      <section class="chain-topline">
-        <div class="chain-quote">
-          <span id="chainSymbol" class="chain-symbol">--</span>
-          <span id="chainPrice" class="chain-price">--</span>
-          <span id="chainChange" class="chain-change">--</span>
-        </div>
-        <a id="chainHistoryLink" class="chain-history-btn" href="/indicator.html?symbol=TSLA">
-          <span aria-hidden="true">&#8599;</span> Price History
-        </a>
-      </section>
-
-      <h2 id="chainTitle" class="chain-title">Loading...</h2>
-
-      <section class="chain-controls">
-        <a id="chainBuilderLink" class="chain-builder-btn" href="/strategies.html">
-          <span aria-hidden="true">&#9776;</span> Builder
-        </a>
-        <div class="chain-segmented" role="group" aria-label="Buy or sell">
-          <button type="button" class="chain-seg-btn active" data-side="buy">Buy</button>
-          <button type="button" class="chain-seg-btn" data-side="sell">Sell</button>
-        </div>
-        <div class="chain-segmented" role="group" aria-label="Call or put">
-          <button type="button" class="chain-seg-btn active" data-type="call">Call</button>
-          <button type="button" class="chain-seg-btn" data-type="put">Put</button>
-        </div>
-        <select id="chainExpirationSelect" class="chain-expiry-select" aria-label="Expiration date"></select>
-      </section>
-
-      <section class="chain-table-wrap">
-        <table class="chain-table">
-          <thead>
-            <tr>
-              <th>Strike price</th>
-              <th>Breakeven</th>
-              <th>To breakeven</th>
-              <th>% Change</th>
-              <th>Change</th>
-              <th id="chainPriceColumnHeader">Ask Price</th>
-            </tr>
-          </thead>
-          <tbody id="chainRows">
-            <tr><td colspan="6" class="loading">Loading option chain...</td></tr>
-          </tbody>
-        </table>
-      </section>
-      <p id="chainStatus" class="helper-text">Loading option chain...</p>
-    </main>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
     <script src="/auth.js"></script>
     <script src="/ticker.js"></script>
     <script src="/stock-search.js"></script>

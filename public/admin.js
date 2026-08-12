@@ -291,7 +291,7 @@ function renderDailyStocks(payload) {
             ${manualSet.has(symbol) ? '<small class="manual-stock-label">Manual</small>' : ""}
           </span>
           <span>
-            <a href="/indicator.html?symbol=${encodeURIComponent(symbol)}">Signals</a>
+            <a href="/chart.html?symbol=${encodeURIComponent(symbol)}">Chart</a>
             <a href="/news.html?q=${encodeURIComponent(symbol)}">News</a>
           </span>
         </label>

@@ -229,11 +229,12 @@ function render(data) {
   updatedAt.textContent = formatTime(data.updatedAt);
   if (trackedSymbols.length) {
     const source = topStocks ? topStocks.source : "watchlist";
-    const topText = data.viewingAll
-      ? `Showing the full daily list: ${trackedSymbols.length} stocks`
-      : `Tracking ${trackedSymbols.length} Admin-selected stocks: ${trackedSymbols.join(", ")}`;
+    const topText="";
+    // const topText = data.viewingAll
+    //   ? `Showing the full daily list: ${trackedSymbols.length} stocks`
+    //   : `Tracking ${trackedSymbols.length} Admin-selected stocks: ${trackedSymbols.join(", ")}`;
     const errorText = topStocks && topStocks.error ? ` Top list fallback: ${topStocks.error}.` : "";
-    symbolStatus.textContent = `${topText}. Source: ${source}.${errorText}`;
+    // symbolStatus.textContent = `${topText}. Source: ${source}.${errorText}`;
   } else {
     symbolStatus.textContent = "No symbols are being tracked yet.";
   }
@@ -256,7 +257,7 @@ function render(data) {
         : "neutral";
       return `
         <tr class="${rowClass}">
-          <td>${formatTime(item.updatedAt)}</td>
+          <!-- <td>${formatTime(item.updatedAt)}</td> -->
           <td class="symbol">${item.symbol}</td>
           <td>${formatMoney(item.price)}</td>
           <td>${formatVolume(item.volume)}</td>
@@ -265,7 +266,7 @@ function render(data) {
           <td>${renderSparkline(item.chart, item.todayChangePercent)}</td>
           <td class="rsi">${Number.isFinite(item.rsi) ? item.rsi.toFixed(2) : "--"}</td>
           <td class="rsi">${Number.isFinite(item.previousRsi) ? item.previousRsi.toFixed(2) : "--"}</td>
-          <td><a class="badge signal-link ${stateClass}" href="/indicator.html?symbol=${encodeURIComponent(item.symbol)}&live=1">${signalLabel}</a></td>
+          <td><a class="badge signal-link ${stateClass}" href="/chart.html?symbol=${encodeURIComponent(item.symbol)}&live=1">${signalLabel}</a></td>
         </tr>
       `;
     })

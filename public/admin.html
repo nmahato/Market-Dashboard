@@ -2,135 +2,132 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Admin</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <h1>Admin</h1>
-          <p>Manage crossover notification channels.</p>
-        </div>
-        <div class="topbar-actions">
-          <nav class="page-nav" aria-label="Dashboard pages">
-            <a href="/index.html">RSI Watch</a>
-            <a href="/">Movers</a>
-            <a href="/search.html">Search</a>
-            <a href="/indicator.html">Signals</a>
-            <a href="/options.html">Options</a>
-            <a href="/news.html">News</a>
-            <a href="/admin.html" aria-current="page">Admin</a>
-          </nav>
-        </div>
-      </header>
-
-      <section class="admin-panel">
-        <p id="adminStatus" class="helper-text">Loading notification settings.</p>
-      </section>
-
-      <section class="admin-panel">
-        <div class="admin-heading">
-          <h2>Users</h2>
-          <span id="userCount">0 users</span>
-        </div>
-        <form id="addUserForm" class="admin-form">
-          <label for="newUsername">Username</label>
-          <input id="newUsername" name="username" type="text" autocomplete="off" minlength="3" required>
-          <label for="newPassword">Password</label>
-          <input id="newPassword" name="password" type="password" autocomplete="new-password" minlength="6" required>
-          <label for="newRole">Role</label>
-          <select id="newRole" name="role">
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
-          <button type="submit">Add User</button>
-        </form>
-        <div id="usersList" class="admin-list">
-          <p class="loading">Sign in as an admin to manage users.</p>
-        </div>
-      </section>
-
-      <section class="admin-panel">
-        <form id="whatsappGroupForm" class="admin-form">
-          <label for="groupName">WhatsApp group</label>
-          <input id="groupName" name="groupName" type="text" maxlength="80" placeholder="Trading alerts">
-          <label for="webhookUrl">Webhook URL</label>
-          <input id="webhookUrl" name="webhookUrl" type="url" placeholder="https://...">
-          <button type="submit">Add Group</button>
-        </form>
-        <p class="helper-text">Use the HTTPS webhook from your WhatsApp group bot or provider.</p>
-      </section>
-
-      <section class="admin-panel">
-        <div class="admin-heading">
-          <h2>Daily Stocks</h2>
-          <span id="dailyStockState">--</span>
-        </div>
-        <form id="manualSymbolForm" class="admin-form manual-symbol-form">
-          <label for="manualSymbolInput">Add ticker manually</label>
-          <div class="stock-search">
-            <input id="manualSymbolInput" name="symbols" type="text" placeholder="Company name or symbol" autocomplete="off">
-            <div id="manualSymbolSuggestions" class="stock-suggestions" hidden></div>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Admin</h1>
+            <p>Manage crossover notification channels.</p>
           </div>
-          <button type="submit">Add to List</button>
-        </form>
-        <div id="dailyStocks" class="admin-list">
-          <p class="loading">Loading daily stocks...</p>
-        </div>
-        <div class="admin-actions">
-          <button id="refreshDailyStocks" type="button" class="secondary-btn">Refresh Daily Stocks</button>
-          <button id="saveWatchlist" type="button">Save Watchlist</button>
-        </div>
-        <p class="helper-text">Check automatic or manually added stocks you want displayed on the RSI Watch dashboard.</p>
-      </section>
+        </header>
 
-      <section class="admin-panel">
-        <div class="admin-heading">
-          <h2>WhatsApp Groups</h2>
-          <span id="groupCount">0 active</span>
-        </div>
-        <div id="whatsappGroups" class="admin-list">
-          <p class="loading">No groups loaded yet.</p>
-        </div>
-      </section>
+        <div class="page-content">
+          <section class="admin-panel">
+            <p id="adminStatus" class="helper-text">Loading notification settings.</p>
+          </section>
 
-      <section class="admin-panel">
-        <div class="admin-heading">
-          <h2>Bulk Buy / Sell</h2>
-          <span id="bulkBrokerName">Alpaca Paper Trading</span>
-        </div>
-        <div id="bulkTradeSymbols" class="admin-stock-grid">
-          <p class="loading">Loading eligible watched stocks...</p>
-        </div>
-        <p id="bulkTradeStatus" class="helper-text">Paper orders only. Select stocks before submitting.</p>
-        <div class="admin-actions bulk-trade-actions">
-          <button id="bulkBuy" type="button">Bulk Paper Buy</button>
-          <button id="bulkSell" type="button" class="danger-btn">Bulk Paper Sell</button>
-        </div>
-      </section>
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>Users</h2>
+              <span id="userCount">0 users</span>
+            </div>
+            <form id="addUserForm" class="admin-form">
+              <label for="newUsername">Username</label>
+              <input id="newUsername" name="username" type="text" autocomplete="off" minlength="3" required>
+              <label for="newPassword">Password</label>
+              <input id="newPassword" name="password" type="password" autocomplete="new-password" minlength="6" required>
+              <label for="newRole">Role</label>
+              <select id="newRole" name="role">
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button type="submit">Add User</button>
+            </form>
+            <div id="usersList" class="admin-list">
+              <p class="loading">Sign in as an admin to manage users.</p>
+            </div>
+          </section>
 
-      <section class="admin-panel">
-        <div class="admin-heading">
-          <h2>Notification Status</h2>
-          <span id="notificationState">--</span>
-        </div>
-        <div id="notificationSummary" class="admin-list">
-          <p class="loading">Loading status...</p>
-        </div>
-      </section>
+          <section class="admin-panel">
+            <form id="whatsappGroupForm" class="admin-form">
+              <label for="groupName">WhatsApp group</label>
+              <input id="groupName" name="groupName" type="text" maxlength="80" placeholder="Trading alerts">
+              <label for="webhookUrl">Webhook URL</label>
+              <input id="webhookUrl" name="webhookUrl" type="url" placeholder="https://...">
+              <button type="submit">Add Group</button>
+            </form>
+            <p class="helper-text">Use the HTTPS webhook from your WhatsApp group bot or provider.</p>
+          </section>
 
-      <section class="admin-panel">
-        <div class="admin-heading">
-          <h2>Paper Trading</h2>
-          <span id="tradingState">--</span>
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>Daily Stocks</h2>
+              <span id="dailyStockState">--</span>
+            </div>
+            <form id="manualSymbolForm" class="admin-form manual-symbol-form">
+              <label for="manualSymbolInput">Add ticker manually</label>
+              <div class="stock-search">
+                <input id="manualSymbolInput" name="symbols" type="text" placeholder="Company name or symbol" autocomplete="off">
+                <div id="manualSymbolSuggestions" class="stock-suggestions" hidden></div>
+              </div>
+              <button type="submit">Add to List</button>
+            </form>
+            <div id="dailyStocks" class="admin-list">
+              <p class="loading">Loading daily stocks...</p>
+            </div>
+            <div class="admin-actions">
+              <button id="refreshDailyStocks" type="button" class="secondary-btn">Refresh Daily Stocks</button>
+              <button id="saveWatchlist" type="button">Save Watchlist</button>
+            </div>
+            <p class="helper-text">Check automatic or manually added stocks you want displayed on the RSI Watch dashboard.</p>
+          </section>
+
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>WhatsApp Groups</h2>
+              <span id="groupCount">0 active</span>
+            </div>
+            <div id="whatsappGroups" class="admin-list">
+              <p class="loading">No groups loaded yet.</p>
+            </div>
+          </section>
+
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>Bulk Buy / Sell</h2>
+              <span id="bulkBrokerName">Alpaca Paper Trading</span>
+            </div>
+            <div id="bulkTradeSymbols" class="admin-stock-grid">
+              <p class="loading">Loading eligible watched stocks...</p>
+            </div>
+            <p id="bulkTradeStatus" class="helper-text">Paper orders only. Select stocks before submitting.</p>
+            <div class="admin-actions bulk-trade-actions">
+              <button id="bulkBuy" type="button">Bulk Paper Buy</button>
+              <button id="bulkSell" type="button" class="danger-btn">Bulk Paper Sell</button>
+            </div>
+          </section>
+
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>Notification Status</h2>
+              <span id="notificationState">--</span>
+            </div>
+            <div id="notificationSummary" class="admin-list">
+              <p class="loading">Loading status...</p>
+            </div>
+          </section>
+
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>Paper Trading</h2>
+              <span id="tradingState">--</span>
+            </div>
+            <div id="tradingSummary" class="admin-list">
+              <p class="loading">Loading paper-trading status...</p>
+            </div>
+          </section>
         </div>
-        <div id="tradingSummary" class="admin-list">
-          <p class="loading">Loading paper-trading status...</p>
-        </div>
-      </section>
-    </main>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
     <script src="/auth.js"></script>
     <script src="/ticker.js"></script>
     <script src="/stock-search.js"></script>

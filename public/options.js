@@ -72,7 +72,7 @@ function updateHeader() {
     ? `${formatSignedMoney(change)} (${formatPercent(changePercent)})`
     : "--";
   chainChange.className = `chain-change ${changeClass(change)}`;
-  chainHistoryLink.href = `/indicator.html?symbol=${encodeURIComponent(symbol)}`;
+  chainHistoryLink.href = `/chart.html?symbol=${encodeURIComponent(symbol)}`;
   chainBuilderLink.href = `/strategies.html?symbol=${encodeURIComponent(symbol)}`;
   chainTitle.textContent = `${symbol} ${currentSide} ${currentType === "call" ? "Call" : "Put"}`;
   chainPriceColumnHeader.textContent = currentSide === "buy" ? "Ask Price" : "Bid Price";

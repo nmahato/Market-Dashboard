@@ -2,123 +2,313 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Stock Search</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <h1>Stock Search</h1>
-          <p>Find active stocks, gainers, losers, and RSI signal candidates.</p>
-        </div>
-        <div class="topbar-actions">
-          <nav class="page-nav" aria-label="Dashboard pages">
-            <a href="/index.html">RSI Watch</a>
-            <a href="/">Movers</a>
-            <a href="/search.html" aria-current="page">Search</a>
-            <a href="/indicator.html">Signals</a>
-            <a href="/options.html">Options</a>
-            <a href="/news.html">News</a>
-            <a href="/admin.html">Admin</a>
-          </nav>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Stock Search</h1>
+            <p>Search any ticker or company, filter by signal, price, and volume, then sort and page through results.</p>
+          </div>
           <div class="status-panel">
             <span id="searchDot" class="dot"></span>
             <span id="searchStatus">Starting</span>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <section class="screener-controls">
-        <form id="screenerForm" class="screener-form">
-          <label for="screenerQuery">Ticker or company</label>
-          <div class="stock-search">
-            <input id="screenerQuery" name="query" type="text" autocomplete="off" placeholder="e.g. Nvidia, AAPL, Tesla">
-            <div id="symbolSuggestions" class="stock-suggestions" hidden></div>
-          </div>
-          <div>
-          <label for="presetSelect">Signal</label>
-          <select id="presetSelect" name="preset">
-            <option value="most-active">Most Active</option>
-            <option value="top-gainers">Top Gainers</option>
-            <option value="top-losers">Top Losers</option>
-          </select>
-          <label for="signalSelect">RSI</label>
-          <select id="signalSelect" name="signal">
-            <option value="all">Any</option>
-            <option value="BUY SIGNAL">Buy Signal</option>
-            <option value="SELL SIGNAL">Sell Signal</option>
-            <option value="OVERSOLD">Oversold</option>
-            <option value="EXTENDED">Extended</option>
-            <option value="WATCH">Watch</option>
-          </select>
-          <label for="minPrice">Min price</label>
-          <input id="minPrice" name="minPrice" type="number" min="0" step="0.01" placeholder="0">
-          <label for="maxPrice">Max price</label>
-          <input id="maxPrice" name="maxPrice" type="number" min="0" step="0.01" placeholder="Any">
-          <label for="minVolume">Min volume</label>
-          <input id="minVolume" name="minVolume" type="number" min="0" step="1000" placeholder="0">
-          <label for="sortSelect">Sort</label>
-          <select id="sortSelect" name="sort">
-            <option value="volume">Volume</option>
-            <option value="change">Change %</option>
-            <option value="price">Price</option>
-            <option value="rsi">RSI</option>
-            <option value="symbol">Ticker</option>
-            <option value="signal">Signal</option>
-          </select>
-          </div>
-          <div>
-          <button type="submit">Search</button>
-          <button id="resetScreener" type="button" class="secondary-btn">Reset</button>
-          </div>
-        </form>
-        <p id="screenerHelper" class="helper-text">Showing most active stocks by default.</p>
-      </section>
+        <div class="page-content">
+          <section class="screener-controls">
+            <form id="screenerForm" class="screener-form">
+              <div class="screener-row">
+                <div>
+                  <label for="presetSelect">Preset</label>
+                  <select id="presetSelect" name="preset">
+                    <option value="most-active">Most Active</option>
+                    <option value="top-gainers">Top Gainers</option>
+                    <option value="top-losers">Top Losers</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="sortSelect">Order by</label>
+                  <select id="sortSelect" name="sort">
+                    <option value="volume">Volume</option>
+                    <option value="change">Change %</option>
+                    <option value="price">Price</option>
+                    <option value="marketCap">Market Cap</option>
+                    <option value="pe">P/E</option>
+                    <option value="dividendYield">Dividend Yield</option>
+                    <option value="shortFloat">Short Float</option>
+                    <option value="analystRecom">Analyst Recom.</option>
+                    <option value="targetPrice">Target Price</option>
+                    <option value="sharesOutstanding">Shares Outstanding</option>
+                    <option value="float">Float</option>
+                    <option value="avgVolume">Avg Volume</option>
+                    <option value="relativeVolume">Relative Volume</option>
+                    <option value="rsi">RSI</option>
+                    <option value="company">Company</option>
+                    <option value="sector">Sector</option>
+                    <option value="symbol">Ticker</option>
+                    <option value="signal">Signal</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="sortDirectionSelect">Direction</label>
+                  <select id="sortDirectionSelect" name="direction">
+                    <option value="desc">Desc</option>
+                    <option value="asc">Asc</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="signalSelect">Signal</label>
+                  <select id="signalSelect" name="signal">
+                    <option value="all">None (all stocks)</option>
+                    <option value="BUY SIGNAL">Buy Signal</option>
+                    <option value="SELL SIGNAL">Sell Signal</option>
+                    <option value="OVERSOLD">Oversold</option>
+                    <option value="EXTENDED">Extended</option>
+                    <option value="WATCH">Watch</option>
+                  </select>
+                </div>
+                <div class="screener-row-search">
+                  <label for="screenerQuery">Tickers</label>
+                  <div class="stock-search">
+                    <input id="screenerQuery" name="query" type="text" autocomplete="off" placeholder="e.g. Nvidia, AAPL, Tesla">
+                    <div id="symbolSuggestions" class="stock-suggestions" hidden></div>
+                  </div>
+                </div>
+              </div>
 
-      <section class="summary">
-        <div>
-          <span>Matches</span>
-          <strong id="matchCount">0</strong>
-        </div>
-        <div>
-          <span>Buy Signals</span>
-          <strong id="searchBuyCount">0</strong>
-        </div>
-        <div>
-          <span>Oversold</span>
-          <strong id="searchOversoldCount">0</strong>
-        </div>
-        <div>
-          <span>Updated</span>
-          <strong id="searchUpdated">--</strong>
-        </div>
-      </section>
+              <div class="screener-tabs" role="tablist" aria-label="Column view">
+                <button type="button" class="screener-tab active" data-view="overview" role="tab" aria-selected="true">Overview</button>
+                <button type="button" class="screener-tab" data-view="descriptive" role="tab" aria-selected="false">Descriptive</button>
+                <button type="button" class="screener-tab" data-view="fundamental" role="tab" aria-selected="false">Fundamental</button>
+                <button type="button" class="screener-tab" data-view="technical" role="tab" aria-selected="false">Technical</button>
+                <button type="button" class="screener-tab" data-view="all" role="tab" aria-selected="false">All</button>
+              </div>
 
-      <section class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Ticker</th>
-              <th>Price</th>
-              <th>Change</th>
-              <th>Volume</th>
-              <th>Avg Volume</th>
-              <th>RSI</th>
-              <th>Previous RSI</th>
-              <th>Signal</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="screenerRows">
-            <tr>
-              <td colspan="9" class="loading">Loading stock search...</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-    </main>
+              <div class="screener-group-label">Descriptive</div>
+              <div class="screener-row">
+                <div>
+                  <label for="exchangeSelect">Exchange</label>
+                  <select id="exchangeSelect" name="exchange">
+                    <option value="">Any</option>
+                    <option value="NASDAQ">NASDAQ</option>
+                    <option value="NYSE">NYSE</option>
+                    <option value="AMEX">AMEX</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="sectorSelect">Sector</label>
+                  <select id="sectorSelect" name="sector">
+                    <option value="">Any</option>
+                    <option value="Technology">Technology</option>
+                    <option value="Healthcare">Healthcare</option>
+                    <option value="Financial Services">Financial Services</option>
+                    <option value="Consumer Cyclical">Consumer Cyclical</option>
+                    <option value="Consumer Defensive">Consumer Defensive</option>
+                    <option value="Industrials">Industrials</option>
+                    <option value="Communication Services">Communication Services</option>
+                    <option value="Energy">Energy</option>
+                    <option value="Basic Materials">Basic Materials</option>
+                    <option value="Real Estate">Real Estate</option>
+                    <option value="Utilities">Utilities</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="industryQuery">Industry</label>
+                  <input id="industryQuery" name="industry" type="text" autocomplete="off" placeholder="e.g. Semiconductors">
+                </div>
+                <div>
+                  <label for="countryQuery">Country</label>
+                  <input id="countryQuery" name="country" type="text" autocomplete="off" placeholder="e.g. USA">
+                </div>
+                <div>
+                  <label for="earningsSelect">Earnings Date</label>
+                  <select id="earningsSelect" name="earnings">
+                    <option value="">Any</option>
+                    <option value="7">Within 7 days</option>
+                    <option value="14">Within 14 days</option>
+                    <option value="30">Within 30 days</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="screener-group-label">Fundamental</div>
+              <div class="screener-row">
+                <div>
+                  <label for="marketCapSelect">Market Cap</label>
+                  <select id="marketCapSelect" name="marketCap">
+                    <option value="">Any</option>
+                    <option value="200000000000">Mega (&gt;$200B)</option>
+                    <option value="10000000000">Large (&gt;$10B)</option>
+                    <option value="2000000000">Mid (&gt;$2B)</option>
+                    <option value="300000000">Small (&gt;$300M)</option>
+                    <option value="50000000">Micro (&gt;$50M)</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="maxPE">Max P/E</label>
+                  <input id="maxPE" name="maxPE" type="number" min="0" step="1" placeholder="Any">
+                </div>
+                <div>
+                  <label for="minDividendYield">Min Div Yield %</label>
+                  <input id="minDividendYield" name="minDividendYield" type="number" min="0" step="0.1" placeholder="0">
+                </div>
+                <div>
+                  <label for="minShortFloat">Min Short Float %</label>
+                  <input id="minShortFloat" name="minShortFloat" type="number" min="0" step="0.1" placeholder="0">
+                </div>
+                <div>
+                  <label for="analystRecomSelect">Analyst Recom.</label>
+                  <select id="analystRecomSelect" name="analystRecom">
+                    <option value="">Any</option>
+                    <option value="1.5">Strong Buy</option>
+                    <option value="2">Buy or better</option>
+                    <option value="3">Hold or better</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="minTargetPrice">Min Target Price</label>
+                  <input id="minTargetPrice" name="minTargetPrice" type="number" min="0" step="0.01" placeholder="Any">
+                </div>
+                <div>
+                  <label for="maxTargetPrice">Max Target Price</label>
+                  <input id="maxTargetPrice" name="maxTargetPrice" type="number" min="0" step="0.01" placeholder="Any">
+                </div>
+                <div>
+                  <label for="sharesOutstandingSelect">Shares Outstanding</label>
+                  <select id="sharesOutstandingSelect" name="sharesOutstanding">
+                    <option value="">Any</option>
+                    <option value="1000000000">&gt;1B</option>
+                    <option value="500000000">&gt;500M</option>
+                    <option value="100000000">&gt;100M</option>
+                    <option value="10000000">&gt;10M</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="floatSelect">Float</label>
+                  <select id="floatSelect" name="float">
+                    <option value="">Any</option>
+                    <option value="1000000000">&gt;1B</option>
+                    <option value="500000000">&gt;500M</option>
+                    <option value="100000000">&gt;100M</option>
+                    <option value="10000000">&gt;10M</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="screener-group-label">Technical &amp; Volume</div>
+              <div class="screener-row">
+                <div>
+                  <label for="minPrice">Min price</label>
+                  <input id="minPrice" name="minPrice" type="number" min="0" step="0.01" placeholder="0">
+                </div>
+                <div>
+                  <label for="maxPrice">Max price</label>
+                  <input id="maxPrice" name="maxPrice" type="number" min="0" step="0.01" placeholder="Any">
+                </div>
+                <div>
+                  <label for="minVolume">Current Volume</label>
+                  <input id="minVolume" name="minVolume" type="number" min="0" step="1000" placeholder="0">
+                </div>
+                <div>
+                  <label for="minAvgVolume">Average Volume</label>
+                  <input id="minAvgVolume" name="minAvgVolume" type="number" min="0" step="1000" placeholder="0">
+                </div>
+                <div>
+                  <label for="minRelativeVolume">Relative Volume</label>
+                  <input id="minRelativeVolume" name="minRelativeVolume" type="number" min="0" step="0.1" placeholder="e.g. 1.5">
+                </div>
+              </div>
+
+              <div class="screener-row-actions">
+                <button type="submit">Search</button>
+                <button id="resetScreener" type="button" class="secondary-btn">Reset</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="summary">
+            <div>
+              <span>Matches</span>
+              <strong id="matchCount">0</strong>
+            </div>
+            <div>
+              <span>Buy Signals</span>
+              <strong id="searchBuyCount">0</strong>
+            </div>
+            <div>
+              <span>Oversold</span>
+              <strong id="searchOversoldCount">0</strong>
+            </div>
+            <div>
+              <span>Updated</span>
+              <strong id="searchUpdated">--</strong>
+            </div>
+          </section>
+          <p id="screenerHelper" class="helper-text">Loading stock search...</p>
+
+          <section class="table-wrap">
+            <table id="screenerTable" class="screener-table" data-view="overview">
+              <thead>
+                <tr>
+                  <th data-col="no">No.</th>
+                  <th data-col="ticker"><button type="button" class="sort-btn" data-sort-key="symbol">Ticker <span aria-hidden="true"></span></button></th>
+                  <th data-col="company"><button type="button" class="sort-btn" data-sort-key="name">Company <span aria-hidden="true"></span></button></th>
+                  <th data-col="sector"><button type="button" class="sort-btn" data-sort-key="sector">Sector <span aria-hidden="true"></span></button></th>
+                  <th data-col="industry"><button type="button" class="sort-btn" data-sort-key="industry">Industry <span aria-hidden="true"></span></button></th>
+                  <th data-col="country"><button type="button" class="sort-btn" data-sort-key="country">Country <span aria-hidden="true"></span></button></th>
+                  <th data-col="exchange"><button type="button" class="sort-btn" data-sort-key="exchange">Exchange <span aria-hidden="true"></span></button></th>
+                  <th data-col="marketCap"><button type="button" class="sort-btn" data-sort-key="marketCap">Market Cap <span aria-hidden="true"></span></button></th>
+                  <th data-col="pe"><button type="button" class="sort-btn" data-sort-key="trailingPE">P/E <span aria-hidden="true"></span></button></th>
+                  <th data-col="dividendYield"><button type="button" class="sort-btn" data-sort-key="dividendYield">Div Yield <span aria-hidden="true"></span></button></th>
+                  <th data-col="shortFloat"><button type="button" class="sort-btn" data-sort-key="shortPercentFloat">Short Float <span aria-hidden="true"></span></button></th>
+                  <th data-col="analystRecom"><button type="button" class="sort-btn" data-sort-key="analystRecommendationMean">Analyst Recom. <span aria-hidden="true"></span></button></th>
+                  <th data-col="targetPrice"><button type="button" class="sort-btn" data-sort-key="targetMeanPrice">Target Price <span aria-hidden="true"></span></button></th>
+                  <th data-col="sharesOutstanding"><button type="button" class="sort-btn" data-sort-key="sharesOutstanding">Shares Out. <span aria-hidden="true"></span></button></th>
+                  <th data-col="float"><button type="button" class="sort-btn" data-sort-key="floatShares">Float <span aria-hidden="true"></span></button></th>
+                  <th data-col="price"><button type="button" class="sort-btn" data-sort-key="price">Price <span aria-hidden="true"></span></button></th>
+                  <th data-col="change"><button type="button" class="sort-btn" data-sort-key="todayChangePercent">Change % <span aria-hidden="true"></span></button></th>
+                  <th data-col="volume"><button type="button" class="sort-btn" data-sort-key="volume">Volume <span aria-hidden="true"></span></button></th>
+                  <th data-col="avgVolume"><button type="button" class="sort-btn" data-sort-key="avgVolume">Avg Volume <span aria-hidden="true"></span></button></th>
+                  <th data-col="relativeVolume"><button type="button" class="sort-btn" data-sort-key="relativeVolume">Rel Volume <span aria-hidden="true"></span></button></th>
+                  <th data-col="earningsDate"><button type="button" class="sort-btn" data-sort-key="earningsDate">Earnings <span aria-hidden="true"></span></button></th>
+                  <th data-col="rsi"><button type="button" class="sort-btn" data-sort-key="rsi">RSI <span aria-hidden="true"></span></button></th>
+                  <th data-col="previousRsi"><button type="button" class="sort-btn" data-sort-key="previousRsi">Previous RSI <span aria-hidden="true"></span></button></th>
+                  <th data-col="signal"><button type="button" class="sort-btn" data-sort-key="state">Signal <span aria-hidden="true"></span></button></th>
+                </tr>
+              </thead>
+              <tbody id="screenerRows">
+                <tr>
+                  <td colspan="24" class="loading">Loading stock search...</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="table-pager">
+              <div class="pager-size">
+                <label for="pageSizeSelect">Rows per page</label>
+                <select id="pageSizeSelect">
+                  <option value="10">10</option>
+                  <option value="25" selected>25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </div>
+              <span id="pagerInfo" class="pager-info">0 results</span>
+              <div id="pagerPages" class="pager-pages" role="navigation" aria-label="Pagination"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
     <script src="/auth.js"></script>
     <script src="/ticker.js"></script>
     <script src="/stock-search.js"></script>

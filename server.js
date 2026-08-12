@@ -40,6 +40,10 @@ let dailyTopStocks = {
 };
 let db;
 const averageVolumeCache = new Map();
+const quoteFundamentalsCache = new Map();
+const QUOTE_FUNDAMENTALS_CACHE_MS = 10 * 60 * 1000;
+const quoteProfileCache = new Map();
+const QUOTE_PROFILE_CACHE_MS = 30 * 60 * 1000;
 const symbolSearchCache = new Map();
 const newsCache = new Map();
 const notificationCooldowns = new Map();
@@ -182,16 +186,48 @@ function firstFinanceResult(json) {
     : json.finance.result;
 }
 
-function sortScreenerRows(rows, sortKey) {
-  const sorters = {
-    change: (a, b) => (b.todayChangePercent ?? -Infinity) - (a.todayChangePercent ?? -Infinity),
-    price: (a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity),
-    volume: (a, b) => (b.volume ?? -Infinity) - (a.volume ?? -Infinity),
-    rsi: (a, b) => (b.rsi ?? -Infinity) - (a.rsi ?? -Infinity),
-    symbol: (a, b) => String(a.symbol || "").localeCompare(String(b.symbol || "")),
-    signal: (a, b) => String(a.state || "").localeCompare(String(b.state || ""))
+function sortScreenerRows(rows, sortKey, direction = "desc") {
+  const sign = direction === "asc" ? 1 : -1;
+  const numericAccessors = {
+    change: (row) => row.todayChangePercent,
+    price: (row) => row.price,
+    volume: (row) => row.volume,
+    avgVolume: (row) => row.avgVolume,
+    relativeVolume: (row) => row.relativeVolume,
+    rsi: (row) => row.rsi,
+    previousRsi: (row) => row.previousRsi,
+    marketCap: (row) => row.marketCap,
+    pe: (row) => row.trailingPE,
+    dividendYield: (row) => row.dividendYield,
+    shortFloat: (row) => row.shortPercentFloat,
+    analystRecom: (row) => row.analystRecommendationMean,
+    targetPrice: (row) => row.targetMeanPrice,
+    sharesOutstanding: (row) => row.sharesOutstanding,
+    float: (row) => row.floatShares
   };
-  return [...rows].sort(sorters[sortKey] || sorters.volume);
+  const stringAccessors = {
+    symbol: (row) => String(row.symbol || ""),
+    signal: (row) => String(row.state || ""),
+    company: (row) => String(row.name || ""),
+    sector: (row) => String(row.sector || ""),
+    industry: (row) => String(row.industry || ""),
+    country: (row) => String(row.country || ""),
+    exchange: (row) => String(row.exchange || "")
+  };
+
+  if (numericAccessors[sortKey]) {
+    const accessor = numericAccessors[sortKey];
+    return [...rows].sort((a, b) => {
+      const first = accessor(a);
+      const second = accessor(b);
+      const firstValue = Number.isFinite(first) ? first : -Infinity;
+      const secondValue = Number.isFinite(second) ? second : -Infinity;
+      return (firstValue - secondValue) * sign;
+    });
+  }
+
+  const accessor = stringAccessors[sortKey] || stringAccessors.symbol;
+  return [...rows].sort((a, b) => accessor(a).localeCompare(accessor(b)) * sign);
 }
 
 async function getScreenerSymbols(preset, query, limit = 30) {
@@ -216,16 +252,63 @@ function filterScreenerRows(rows, params) {
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
   };
+  const optionalText = (name) => {
+    const value = String(params.get(name) || "").trim();
+    return value ? value.toLowerCase() : null;
+  };
   const minPrice = optionalNumber("minPrice");
   const maxPrice = optionalNumber("maxPrice");
   const minVolume = optionalNumber("minVolume");
+  const minAvgVolume = optionalNumber("minAvgVolume");
+  const minRelativeVolume = optionalNumber("minRelativeVolume");
+  const minMarketCap = optionalNumber("minMarketCap");
+  const maxMarketCap = optionalNumber("maxMarketCap");
+  const minPE = optionalNumber("minPE");
+  const maxPE = optionalNumber("maxPE");
+  const minDividendYield = optionalNumber("minDividendYield");
+  const minShortFloat = optionalNumber("minShortFloat");
+  const maxAnalystRecommendation = optionalNumber("maxAnalystRecommendation");
+  const minTargetPrice = optionalNumber("minTargetPrice");
+  const maxTargetPrice = optionalNumber("maxTargetPrice");
+  const minSharesOutstanding = optionalNumber("minSharesOutstanding");
+  const minFloat = optionalNumber("minFloat");
+  const earningsWithinDays = optionalNumber("earningsWithinDays");
+  const exchange = optionalText("exchange");
+  const sector = optionalText("sector");
+  const industry = optionalText("industry");
+  const country = optionalText("country");
   const signal = String(params.get("signal") || "all");
+
+  const now = Date.now();
 
   return rows.filter((row) => {
     if (signal !== "all" && row.state !== signal) return false;
     if (minPrice !== null && (!Number.isFinite(row.price) || row.price < minPrice)) return false;
     if (maxPrice !== null && (!Number.isFinite(row.price) || row.price > maxPrice)) return false;
     if (minVolume !== null && (!Number.isFinite(row.volume) || row.volume < minVolume)) return false;
+    if (minAvgVolume !== null && (!Number.isFinite(row.avgVolume) || row.avgVolume < minAvgVolume)) return false;
+    if (minRelativeVolume !== null && (!Number.isFinite(row.relativeVolume) || row.relativeVolume < minRelativeVolume)) return false;
+    if (minMarketCap !== null && (!Number.isFinite(row.marketCap) || row.marketCap < minMarketCap)) return false;
+    if (maxMarketCap !== null && (!Number.isFinite(row.marketCap) || row.marketCap > maxMarketCap)) return false;
+    if (minPE !== null && (!Number.isFinite(row.trailingPE) || row.trailingPE < minPE)) return false;
+    if (maxPE !== null && (!Number.isFinite(row.trailingPE) || row.trailingPE > maxPE)) return false;
+    if (minDividendYield !== null && (!Number.isFinite(row.dividendYield) || row.dividendYield < minDividendYield)) return false;
+    if (minShortFloat !== null && (!Number.isFinite(row.shortPercentFloat) || row.shortPercentFloat < minShortFloat)) return false;
+    if (maxAnalystRecommendation !== null && (!Number.isFinite(row.analystRecommendationMean) || row.analystRecommendationMean > maxAnalystRecommendation)) return false;
+    if (minTargetPrice !== null && (!Number.isFinite(row.targetMeanPrice) || row.targetMeanPrice < minTargetPrice)) return false;
+    if (maxTargetPrice !== null && (!Number.isFinite(row.targetMeanPrice) || row.targetMeanPrice > maxTargetPrice)) return false;
+    if (minSharesOutstanding !== null && (!Number.isFinite(row.sharesOutstanding) || row.sharesOutstanding < minSharesOutstanding)) return false;
+    if (minFloat !== null && (!Number.isFinite(row.floatShares) || row.floatShares < minFloat)) return false;
+    if (earningsWithinDays !== null) {
+      const earningsTime = row.earningsDate ? Date.parse(row.earningsDate) : NaN;
+      if (!Number.isFinite(earningsTime)) return false;
+      const daysUntil = (earningsTime - now) / (24 * 60 * 60 * 1000);
+      if (daysUntil < 0 || daysUntil > earningsWithinDays) return false;
+    }
+    if (exchange && !String(row.exchange || "").toLowerCase().includes(exchange)) return false;
+    if (sector && String(row.sector || "").toLowerCase() !== sector) return false;
+    if (industry && !String(row.industry || "").toLowerCase().includes(industry)) return false;
+    if (country && !String(row.country || "").toLowerCase().includes(country)) return false;
     return true;
   });
 }
@@ -234,6 +317,7 @@ async function getScreenerData(params) {
   const preset = params.get("preset") || "most-active";
   const query = params.get("q") || "";
   const sort = params.get("sort") || "volume";
+  const direction = params.get("direction") === "asc" ? "asc" : "desc";
   const limit = params.get("limit") || 30;
   const symbols = await getScreenerSymbols(preset, query, limit);
   const settled = await Promise.allSettled(symbols.map(getSymbolData));
@@ -246,7 +330,38 @@ async function getScreenerData(params) {
       updatedAt: new Date().toISOString()
     };
   });
-  const filtered = sortScreenerRows(filterScreenerRows(rows, params), sort);
+
+  const validSymbols = rows.filter((row) => row.state !== "ERROR").map((row) => row.symbol);
+  const [fundamentals, profiles] = await Promise.all([
+    getBulkQuoteFundamentals(validSymbols),
+    getBulkQuoteProfiles(validSymbols)
+  ]);
+  rows.forEach((row) => {
+    const extra = fundamentals[row.symbol];
+    row.name = extra ? extra.name : null;
+    row.marketCap = extra ? extra.marketCap : null;
+    row.trailingPE = extra ? extra.trailingPE : null;
+    row.dividendYield = extra ? extra.dividendYield : null;
+    row.exchange = extra ? extra.exchange : null;
+
+    const profile = profiles[row.symbol];
+    row.sector = profile ? profile.sector : null;
+    row.industry = profile ? profile.industry : null;
+    row.country = profile ? profile.country : null;
+    row.analystRecommendation = profile ? profile.analystRecommendation : null;
+    row.analystRecommendationMean = profile ? profile.analystRecommendationMean : null;
+    row.targetMeanPrice = profile ? profile.targetMeanPrice : null;
+    row.shortPercentFloat = profile ? profile.shortPercentFloat : null;
+    row.floatShares = profile ? profile.floatShares : null;
+    row.sharesOutstanding = profile ? profile.sharesOutstanding : null;
+    row.earningsDate = profile ? profile.earningsDate : null;
+
+    row.relativeVolume = Number.isFinite(row.volume) && Number.isFinite(row.avgVolume) && row.avgVolume > 0
+      ? row.volume / row.avgVolume
+      : null;
+  });
+
+  const filtered = sortScreenerRows(filterScreenerRows(rows, params), sort, direction);
   const presetConfig = SCREENER_PRESETS.get(preset) || SCREENER_PRESETS.get("most-active");
 
   return {
@@ -691,6 +806,139 @@ async function getAverageVolumeData(symbol) {
   }
 }
 
+async function getBulkQuoteFundamentals(symbols) {
+  const normalizedSymbols = normalizeSymbols(symbols);
+  if (!normalizedSymbols.length) return {};
+
+  const result = {};
+  const uncached = [];
+  normalizedSymbols.forEach((symbol) => {
+    const cached = quoteFundamentalsCache.get(symbol);
+    if (cached && Date.now() - cached.cachedAt < QUOTE_FUNDAMENTALS_CACHE_MS) {
+      result[symbol] = cached.data;
+    } else {
+      uncached.push(symbol);
+    }
+  });
+  if (!uncached.length) return result;
+
+  const fetchQuotes = async (auth) => {
+    const crumbQuery = auth && auth.crumb ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(uncached.join(","))}${crumbQuery}`;
+    return requestJson(url, auth && auth.cookie ? { Cookie: auth.cookie } : {});
+  };
+
+  try {
+    let json;
+    try {
+      json = await fetchQuotes(await getYahooAuth());
+    } catch (error) {
+      json = await fetchQuotes(await getYahooAuth(true));
+    }
+    const quotes = (json.quoteResponse && Array.isArray(json.quoteResponse.result)) ? json.quoteResponse.result : [];
+    quotes.forEach((quote) => {
+      if (!quote || !quote.symbol) return;
+      const data = {
+        name: quote.longName || quote.shortName || null,
+        marketCap: Number.isFinite(quote.marketCap) ? quote.marketCap : null,
+        trailingPE: Number.isFinite(quote.trailingPE) ? quote.trailingPE : null,
+        dividendYield: Number.isFinite(quote.dividendYield) ? quote.dividendYield : null,
+        exchange: quote.fullExchangeName || quote.exchange || null
+      };
+      quoteFundamentalsCache.set(quote.symbol, { cachedAt: Date.now(), data });
+      result[quote.symbol] = data;
+    });
+  } catch (error) {
+    console.warn(`Bulk quote fundamentals unavailable: ${error.message}`);
+  }
+
+  return result;
+}
+
+async function getQuoteProfile(symbol) {
+  const cached = quoteProfileCache.get(symbol);
+  if (cached && Date.now() - cached.cachedAt < QUOTE_PROFILE_CACHE_MS) {
+    return cached.data;
+  }
+
+  const fetchProfile = async (auth) => {
+    const crumbQuery = auth && auth.crumb ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
+    const modules = "assetProfile,financialData,defaultKeyStatistics,calendarEvents";
+    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbQuery}`;
+    return requestJson(url, auth && auth.cookie ? { Cookie: auth.cookie } : {});
+  };
+
+  let data = {
+    sector: null,
+    industry: null,
+    country: null,
+    analystRecommendation: null,
+    analystRecommendationMean: null,
+    targetMeanPrice: null,
+    shortPercentFloat: null,
+    floatShares: null,
+    sharesOutstanding: null,
+    earningsDate: null
+  };
+
+  try {
+    let json;
+    try {
+      json = await fetchProfile(await getYahooAuth());
+    } catch (error) {
+      json = await fetchProfile(await getYahooAuth(true));
+    }
+    const result = json.quoteSummary && Array.isArray(json.quoteSummary.result) && json.quoteSummary.result[0];
+    if (result) {
+      const profile = result.assetProfile || {};
+      const financial = result.financialData || {};
+      const stats = result.defaultKeyStatistics || {};
+      const earnings = (result.calendarEvents && result.calendarEvents.earnings) || {};
+      const earningsDates = Array.isArray(earnings.earningsDate) ? earnings.earningsDate : [];
+      const firstEarningsDate = earningsDates[0];
+
+      data = {
+        sector: profile.sector || null,
+        industry: profile.industry || null,
+        country: profile.country || null,
+        analystRecommendation: financial.recommendationKey || null,
+        analystRecommendationMean: Number.isFinite(financial.recommendationMean && financial.recommendationMean.raw)
+          ? financial.recommendationMean.raw
+          : null,
+        targetMeanPrice: Number.isFinite(financial.targetMeanPrice && financial.targetMeanPrice.raw)
+          ? financial.targetMeanPrice.raw
+          : null,
+        shortPercentFloat: Number.isFinite(stats.shortPercentOfFloat && stats.shortPercentOfFloat.raw)
+          ? stats.shortPercentOfFloat.raw * 100
+          : null,
+        floatShares: Number.isFinite(stats.floatShares && stats.floatShares.raw) ? stats.floatShares.raw : null,
+        sharesOutstanding: Number.isFinite(stats.sharesOutstanding && stats.sharesOutstanding.raw)
+          ? stats.sharesOutstanding.raw
+          : null,
+        earningsDate: Number.isFinite(firstEarningsDate && firstEarningsDate.raw)
+          ? new Date(firstEarningsDate.raw * 1000).toISOString()
+          : null
+      };
+    }
+  } catch (error) {
+    console.warn(`Quote profile unavailable for ${symbol}: ${error.message}`);
+  }
+
+  quoteProfileCache.set(symbol, { cachedAt: Date.now(), data });
+  return data;
+}
+
+async function getBulkQuoteProfiles(symbols) {
+  const normalizedSymbols = normalizeSymbols(symbols);
+  if (!normalizedSymbols.length) return {};
+  const settled = await Promise.all(normalizedSymbols.map(getQuoteProfile));
+  const result = {};
+  normalizedSymbols.forEach((symbol, index) => {
+    result[symbol] = settled[index];
+  });
+  return result;
+}
+
 const MARKET_TICKER_SYMBOLS = [
   { symbol: "^GSPC", label: "S&P 500" },
   { symbol: "^DJI", label: "Dow Jones" },
@@ -885,6 +1133,96 @@ function nextMonthlyOptionDate(minimumDays = 28) {
   return minimum.toISOString().slice(0, 10);
 }
 
+function classifyTrend({ spot, ema20, ema50, rsi, return20 }) {
+  const aboveEma = spot > ema20 && ema20 > ema50;
+  const belowEma = spot < ema20 && ema20 < ema50;
+  if (aboveEma && return20 >= 5 && rsi < 85) return "strong-bull";
+  if (belowEma && return20 <= -5 && rsi > 22) return "strong-bear";
+  if (spot >= ema20 && ema20 >= ema50 && return20 > 0 && rsi >= 45 && rsi <= 72) return "mild-bull";
+  if (spot <= ema20 && ema20 <= ema50 && return20 < 0 && rsi <= 55 && rsi >= 28) return "mild-bear";
+  if (Math.abs(return20) <= 3 && rsi >= 42 && rsi <= 58) return "neutral";
+  return "choppy";
+}
+
+function classifyVolatility({ volatility20, expansion }) {
+  const level = volatility20 >= 0.35 ? "extreme" : volatility20 >= 0.22 ? "elevated" : "low";
+  const trend = expansion >= 1.15 ? "expanding" : expansion <= 0.85 ? "contracting" : "stable";
+  return { level, trend, rich: level !== "low" };
+}
+
+function clampConfidence(value) { return Math.max(50, Math.min(88, Math.round(value))); }
+
+function chooseStrategy(trend, vol, { rsi, return20, expansion, volatility20 }) {
+  const expansionBoost = Math.max(0, expansion - 1) * 30;
+
+  if (trend === "strong-bull") {
+    if (rsi > 75 && vol.trend === "expanding") {
+      return { recommendation: "protective-put", confidence: clampConfidence(55 + expansionBoost + (rsi - 75)), rationale: "The uptrend is strong but extended and realized volatility is expanding, so a protective put hedges downside risk on an existing position while keeping full upside." };
+    }
+    if (vol.trend === "expanding") {
+      return { recommendation: "long-call", confidence: clampConfidence(60 + expansionBoost + Math.min(10, return20 / 2)), rationale: "Price, EMA alignment, and 20-day return are strongly bullish while realized volatility is expanding, favoring an uncapped long call to ride continuation." };
+    }
+    if (vol.rich) {
+      return { recommendation: "bull-call-spread", confidence: clampConfidence(62 + Math.min(15, return20)), rationale: "Price, EMA alignment, and 20-day return are bullish, and premiums are rich enough that a defined-risk bull call spread is more efficient than a naked call." };
+    }
+    return { recommendation: "long-call", confidence: clampConfidence(58 + Math.min(15, return20)), rationale: "Price, EMA alignment, and 20-day return are bullish with cheap realized volatility, favoring an uncapped long call over a spread." };
+  }
+
+  if (trend === "strong-bear") {
+    if (vol.trend === "expanding") {
+      return { recommendation: "long-put", confidence: clampConfidence(60 + expansionBoost + Math.min(10, Math.abs(return20) / 2)), rationale: "Price, EMA alignment, and 20-day return are strongly bearish while realized volatility is expanding, favoring an uncapped long put to ride continuation." };
+    }
+    return { recommendation: "bear-put-spread", confidence: clampConfidence(62 + Math.min(15, Math.abs(return20))), rationale: "Price, EMA alignment, and 20-day return are bearish, favoring a defined-risk bear put spread." };
+  }
+
+  if (trend === "mild-bull") {
+    if (vol.trend === "expanding" && vol.rich) {
+      return { recommendation: "collar", confidence: clampConfidence(55 + expansionBoost), rationale: "The bias is mildly bullish but realized volatility is expanding, favoring a zero/low-cost collar to cap upside in exchange for downside protection." };
+    }
+    if (vol.rich) {
+      return { recommendation: "bull-put-spread", confidence: clampConfidence(58 + volatility20 * 40), rationale: "The bias is mildly bullish and premiums are rich, favoring a bull put credit spread over paying for calls." };
+    }
+    if (rsi < 50) {
+      return { recommendation: "cash-secured-put", confidence: clampConfidence(56 + (50 - rsi) / 2), rationale: "Trend is mildly bullish with cheap realized volatility and RSI below neutral, favoring a cash-secured put to acquire shares at a discount." };
+    }
+    return { recommendation: "covered-call", confidence: clampConfidence(58 + Math.max(0, return20) * 1.5), rationale: "Trend and RSI are neutral-to-bullish without strong volatility expansion, favoring covered-call income for an existing 100-share position." };
+  }
+
+  if (trend === "mild-bear") {
+    if (vol.rich) {
+      return { recommendation: "bear-call-spread", confidence: clampConfidence(58 + volatility20 * 40), rationale: "The bias is mildly bearish and premiums are rich, favoring a bear call credit spread." };
+    }
+    return { recommendation: "bear-put-spread", confidence: clampConfidence(56 + Math.abs(return20) * 1.5), rationale: "The bias is mildly bearish with cheap realized volatility, favoring a defined-risk bear put spread over selling credit." };
+  }
+
+  if (trend === "neutral") {
+    if (vol.level === "extreme" && vol.trend === "stable") {
+      return { recommendation: "short-straddle", confidence: clampConfidence(62 + volatility20 * 35), rationale: "Price is pinned near the middle of its range while realized volatility is extremely elevated and steady, favoring a short straddle to harvest rich at-the-money premium." };
+    }
+    if ((vol.level === "extreme" && vol.trend === "contracting") || (vol.level === "elevated" && vol.trend === "contracting")) {
+      return { recommendation: "short-strangle", confidence: clampConfidence(60 + volatility20 * 30), rationale: "Price is range-bound while realized volatility is elevated but starting to cool, favoring a short strangle to collect fading premium with a wider range than a straddle." };
+    }
+    if (vol.level === "elevated" && vol.trend === "stable") {
+      return { recommendation: "iron-condor", confidence: clampConfidence(60 + volatility20 * 35), rationale: "Price is range-bound while realized volatility is elevated but not expanding, favoring a defined-risk premium-selling iron condor." };
+    }
+    if (vol.level === "low" && vol.trend === "expanding") {
+      return { recommendation: "long-straddle", confidence: clampConfidence(58 + expansionBoost), rationale: "Realized volatility is cheap but starting to expand with no clear direction, favoring an at-the-money long straddle before premiums get pricier." };
+    }
+    if (vol.trend === "expanding") {
+      return { recommendation: "long-strangle", confidence: clampConfidence(58 + expansionBoost * (vol.level === "extreme" ? 1.15 : 1)), rationale: "Recent realized volatility is expanding with no clear direction, favoring a long strangle if the future move exceeds premiums paid." };
+    }
+    if (vol.trend === "contracting") {
+      return { recommendation: "call-butterfly", confidence: clampConfidence(55 + (1 - volatility20) * 20), rationale: "Price is pinned near the middle of its range with thin and shrinking realized volatility, favoring a cheap debit call butterfly over selling scarce premium." };
+    }
+    return { recommendation: "iron-butterfly", confidence: clampConfidence(58 + volatility20 * 30), rationale: "Price is pinned near the middle of its range with steady realized volatility, favoring an iron butterfly to collect at-the-money premium with defined risk." };
+  }
+
+  if ((vol.level === "extreme" || (vol.rich && vol.trend === "expanding"))) {
+    return { recommendation: "long-strangle", confidence: clampConfidence(55 + expansionBoost), rationale: "Trend signals conflict, but realized volatility is elevated and expanding, favoring a long strangle since direction matters less than the size of the move." };
+  }
+  return { recommendation: "wait", confidence: 68, rationale: "The move is unusually directional or extended and trend signals conflict; neither a directional nor volatility-based strategy has a clean model fit, so waiting is safer than forcing a trade." };
+}
+
 async function getOptionStrategyAnalysis(symbol) {
   const normalizedSymbol = normalizeSymbols(symbol)[0];
   if (!normalizedSymbol) throw new Error("A valid symbol is required");
@@ -908,39 +1246,9 @@ async function getOptionStrategyAnalysis(symbol) {
   const return20 = ((spot / closes[closes.length - 21]) - 1) * 100;
   const rsiValues = rsiSeries(closes);
   const rsi = rsiValues[rsiValues.length - 1];
-  const mildBullish = spot >= ema20 && ema20 >= ema50 && rsi >= 40 && rsi <= 72;
-  const stronglyBullish = spot > ema20 && ema20 > ema50 && return20 >= 5 && rsi < 75;
-  const stronglyBearish = spot < ema20 && ema20 < ema50 && return20 <= -5 && rsi > 25;
-  const rangeBound = Math.abs(return20) <= 3 && rsi >= 43 && rsi <= 57;
-  const volatilityExpanding = expansion >= 1.15 && volatility20 >= 0.18;
-
-  let recommendation = "wait";
-  let confidence = 50;
-  let rationale = "Signals do not strongly favor any supported strategy.";
-  if (volatilityExpanding && !stronglyBullish && !stronglyBearish) {
-    recommendation = "long-strangle";
-    confidence = Math.min(85, Math.round(58 + (expansion - 1) * 35));
-    rationale = "Recent realized volatility is expanding, which better fits a long-volatility strangle if the future move exceeds premiums paid.";
-  } else if (rangeBound && volatility20 >= 0.25 && expansion < 1.1) {
-    recommendation = "iron-condor";
-    confidence = Math.min(82, Math.round(60 + volatility20 * 35));
-    rationale = "Price is range-bound while realized volatility is elevated but not expanding, which better fits a defined-risk premium-selling iron condor.";
-  } else if (stronglyBullish) {
-    recommendation = "bull-call-spread";
-    confidence = Math.min(85, Math.round(62 + return20));
-    rationale = "Price, EMA alignment, and 20-day return are bullish, favoring a defined-risk bull call spread over a neutral income structure.";
-  } else if (stronglyBearish) {
-    recommendation = "bear-put-spread";
-    confidence = Math.min(85, Math.round(62 + Math.abs(return20)));
-    rationale = "Price, EMA alignment, and 20-day return are bearish, favoring a defined-risk bear put spread.";
-  } else if (mildBullish || (rsi >= 42 && rsi <= 65 && return20 >= -3)) {
-    recommendation = "covered-call";
-    confidence = Math.min(82, Math.round(58 + Math.max(0, return20) * 1.5));
-    rationale = "Trend and RSI are neutral-to-bullish without strong volatility expansion, which better fits covered-call income for an existing 100-share position.";
-  } else if (rsi < 35 || rsi > 75 || Math.abs(return20) > 12) {
-    confidence = 68;
-    rationale = "The move is unusually directional or extended; neither available strategy has a clean model fit, so waiting is safer than forcing a trade.";
-  }
+  const trend = classifyTrend({ spot, ema20, ema50, rsi, return20 });
+  const vol = classifyVolatility({ volatility20, expansion });
+  const { recommendation, confidence, rationale } = chooseStrategy(trend, vol, { rsi, return20, expansion, volatility20 });
 
   const expiration = nextMonthlyOptionDate(28);
   const volatilityProxy = Math.max(10, Math.min(150, volatility20 * 100));
@@ -1717,7 +2025,7 @@ function readJsonBody(req) {
 
 function sendStatic(req, res) {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  const requested = parsedUrl.pathname === "/" ? "/movers.html" : parsedUrl.pathname;
+  const requested = parsedUrl.pathname === "/" ? "/search.html" : parsedUrl.pathname;
   const filePath = path.join(__dirname, "public", path.normalize(requested).replace(/^(\.\.[/\\])+/, ""));
   const ext = path.extname(filePath).toLowerCase();
   const contentType = ext === ".css" ? "text/css" : ext === ".js" ? "text/javascript" : "text/html";

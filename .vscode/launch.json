@@ -12,7 +12,7 @@
       "restart": true,
       "skipFiles": ["<node_internals>/**"],
       "env": {
-        "PORT": "4178",
+        "PORT": "4100",
         "SQLITE_DB_PATH": "${env:TEMP}/market-watch-debug.sqlite"
       }
     },
@@ -20,7 +20,7 @@
       "type": "node",
       "request": "attach",
       "name": "Attach to Market Dashboard",
-      "port": 9229,
+      "port": 9230,
       "restart": true,
       "skipFiles": ["<node_internals>/**"]
     }

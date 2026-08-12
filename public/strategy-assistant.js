@@ -12,11 +12,23 @@
 
   function renderAnalysis(analysis) {
     const labels = {
+      "long-call": "Long Call",
+      "long-put": "Long Put",
       "covered-call": "Covered Call",
-      "long-strangle": "Long Strangle",
+      "protective-put": "Protective Put",
+      collar: "Collar",
+      "cash-secured-put": "Cash-Secured Put",
       "bull-call-spread": "Bull Call Spread",
       "bear-put-spread": "Bear Put Spread",
+      "bull-put-spread": "Bull Put Spread",
+      "bear-call-spread": "Bear Call Spread",
+      "long-straddle": "Straddle",
+      "long-strangle": "Long Strangle",
+      "short-straddle": "Short Straddle",
+      "short-strangle": "Short Strangle",
       "iron-condor": "Iron Condor",
+      "iron-butterfly": "Iron Butterfly",
+      "call-butterfly": "Call Butterfly",
       wait: "Wait / No Clean Fit"
     };
     recommendation.textContent = `Best now: ${labels[analysis.recommendation] || analysis.recommendation} · ${analysis.confidence}% model confidence`;
@@ -33,11 +45,9 @@
     ].map(([label, value]) => `<span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span>`).join("");
     if (analysis.recommendation !== "wait") {
       action.hidden = false;
-      action.href = analysis.recommendation === "covered-call"
-        ? "/options.html"
-        : analysis.recommendation === "long-strangle"
-          ? "/strangle.html"
-          : `/strategies.html?strategy=${encodeURIComponent(analysis.recommendation)}`;
+      action.href = analysis.recommendation === "long-strangle"
+        ? "/strangle.html"
+        : `/strategies.html?strategy=${encodeURIComponent(analysis.recommendation)}`;
       action.textContent = `Use best fit: ${labels[analysis.recommendation]}`;
     } else {
       action.hidden = true;

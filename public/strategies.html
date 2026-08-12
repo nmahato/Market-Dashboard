@@ -1,72 +1,127 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Options Strategy Lab</title><link rel="stylesheet" href="/styles.css">
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Options Strategy Lab</title>
+    <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div><h1>Options Strategy Lab</h1><p>Build, compare, and project common single- and multi-leg option strategies.</p></div>
-        <div class="topbar-actions"><nav class="page-nav" aria-label="Dashboard pages"><a href="/index.html">RSI Watch</a><a href="/">Movers</a><a href="/search.html">Search</a><a href="/indicator.html">Signals</a><a href="/options.html" aria-current="page">Options</a><a href="/news.html">News</a><a href="/admin.html">Admin</a></nav></div>
-      </header>
-    
-      <section class="strategy-assistant" aria-live="polite">
-        <div><span>Best Model Fit Now</span><strong id="strategyRecommendation">Select an underlying to analyze</strong><p id="strategyRationale">The model compares trend, RSI, return, and realized volatility, and may recommend waiting when no setup is strong.</p></div>
-        <div id="strategyMetrics" class="strategy-metrics"></div><a id="strategyAction" class="strategy-action" href="/strategies.html" hidden>Use suggestion</a>
-      </section>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div><h1>Options Strategy Lab</h1><p>Build, compare, and project common single- and multi-leg option strategies.</p></div>
+        </header>
 
-      <section class="strategy-catalog-panel" aria-labelledby="strategyCatalogTitle">
-        <div class="admin-heading">
-          <div><h2 id="strategyCatalogTitle">All Option Strategies</h2><p>Choose a strategy to load its legs into the calculator.</p></div>
-          <span id="strategyCatalogCount">0 strategies</span>
+        <div class="page-content">
+          <nav class="strategy-tabs" aria-label="Option strategies">
+            <a href="/options.html">Chain</a>
+            <a href="/strategies.html" aria-current="page">Strategy Lab</a>
+          </nav>
+
+          <section class="strategy-assistant" aria-live="polite">
+            <div><span>Best Model Fit Now</span><strong id="strategyRecommendation">Select an underlying to analyze</strong><p id="strategyRationale">The model compares trend, RSI, return, and realized volatility, and may recommend waiting when no setup is strong.</p></div>
+            <div id="strategyMetrics" class="strategy-metrics"></div><a id="strategyAction" class="strategy-action" href="/strategies.html" hidden>Use suggestion</a>
+          </section>
+
+          <section class="ob-card strangle-terminal strategy-lab-controls" id="obCard">
+            <div class="ob-header terminal-heading">
+              <h2 id="obStrategyName">Strategy <small tabindex="0" title="Model-estimated payoff for the selected strategy.">?</small></h2>
+              <div class="ob-header-actions terminal-actions">
+                <label for="strategyType" class="sr-only">Strategy</label>
+                <select id="strategyType" class="ob-strategy-select"></select>
+                <button id="obAddLegBtn" type="button" title="Add a custom leg to this position">Add +</button>
+                <button id="obPositionsBtn" type="button">Positions (<span id="obLegCount">0</span>)</button>
+                <button id="obAdvancedBtn" type="button">Assumptions</button>
+                <button id="obSaveBtn" type="button">Save Trade</button>
+                <a id="obHistoricalChart" href="/chart.html" target="_blank" rel="noopener">Historical Chart &#8599;</a>
+              </div>
+            </div>
+
+            <div class="ob-quote-row">
+              <div class="stock-search ob-symbol-search"><input id="labSymbol" value="SPY" autocomplete="off" maxlength="10"><div id="labSymbolSuggestions" class="stock-suggestions" hidden></div></div>
+              <span id="obPrice" class="ob-price">--</span>
+              <span id="obChange" class="ob-change">--</span>
+              <span class="ob-delayed" title="Model-estimated price, not a live quote">&#8635; Est. price</span>
+              <button id="analyzeStrategy" type="button" class="ob-autofill-btn">Analyze &amp; Auto-Fill</button>
+            </div>
+            <p id="labStatus" class="ob-status helper-text">Choose a ticker to generate a strategy and editable option legs.</p>
+
+            <div id="obAdvancedPanel" class="ob-advanced-panel" hidden>
+              <div class="option-field"><label for="labSpot">Stock price</label><input id="labSpot" type="number" min="0.01" step="0.01" value="746"></div>
+              <div class="option-field"><label for="labRate">Risk-free rate</label><div class="input-suffix"><input id="labRate" type="number" min="-10" max="50" step="0.01" value="4.25"><span>%</span></div></div>
+              <div class="option-field"><label for="labDividend">Dividend yield</label><div class="input-suffix"><input id="labDividend" type="number" min="0" max="50" step="0.01" value="1.2"><span>%</span></div></div>
+              <div class="option-field"><label for="labContracts">Contracts / units</label><input id="labContracts" type="number" min="1" max="100" step="1" value="1"></div>
+            </div>
+
+            <div id="obSavePanel" class="ob-save-panel" hidden>
+              <div class="ob-save-form">
+                <label for="obSaveName" class="sr-only">Trade name</label>
+                <input id="obSaveName" type="text" maxlength="60" placeholder="Name this trade&hellip;">
+                <button id="obSaveConfirm" type="button">Save</button>
+              </div>
+              <ul id="obSavedList" class="ob-saved-list"></ul>
+            </div>
+
+            <div class="terminal-section-label"><span>Expiration:</span><strong id="obDaysToExpiry">--</strong></div>
+            <div id="obMonthStrip" class="expiration-strip ob-month-strip"></div>
+            <div id="obDayStrip" class="expiration-strip ob-day-strip"></div>
+
+            <div class="terminal-section-label"><span>Strike:</span><strong>Drag a marker to change it</strong></div>
+            <div class="strike-ruler ob-strike-ruler" id="obStrikeRuler">
+              <div id="obRulerTicks" class="strike-ruler-ticks"></div>
+              <div id="obMarkers" class="ob-markers"></div>
+              <i id="spotMarker" class="spot-marker"></i>
+            </div>
+
+            <div class="terminal-metrics ob-metrics-row" id="obMetrics">
+              <article><span id="obNetPremiumLabel">Net Debit</span><strong id="obNetPremium">--</strong></article>
+              <article><span>Max Loss</span><strong id="obMaxLoss">--</strong></article>
+              <article><span>Max Profit</span><strong id="obMaxProfit">--</strong></article>
+              <article><span>Chance of Profit</span><strong id="obChanceOfProfit">--</strong></article>
+              <article><span>Breakevens</span><strong id="obBreakevens">--</strong></article>
+            </div>
+
+            <div class="ob-tabs" id="obTabs" role="tablist">
+              <button type="button" class="active" data-tab="table" role="tab">Table</button>
+              <button type="button" data-tab="graph" role="tab">Graph</button>
+              <button type="button" data-tab="pl-dollar" role="tab">Profit/Loss $</button>
+              <button type="button" data-tab="pl-pct" role="tab">Profit/Loss %</button>
+              <button type="button" data-tab="contract-value" role="tab">Contract Value</button>
+              <button type="button" data-tab="pct-max-risk" role="tab">% of Max Risk</button>
+            </div>
+
+            <div id="obChart" class="ob-chart"></div>
+            <div id="obTable" class="ob-table-wrap" hidden></div>
+            <table class="strategy-legs-table ob-legs-table" id="obLegsPanel" hidden><thead><tr><th>Action</th><th>Instrument</th><th>Strike</th><th>Model / Entry Price</th><th>Expiration</th><th></th></tr></thead><tbody id="strategyLegRows"></tbody></table>
+
+            <div class="ob-date-row">
+              <span>Date: <strong id="obDateLabel">--</strong></span>
+              <span id="obAtExpiration" class="ob-at-expiration">(At expiration)</span>
+            </div>
+            <input id="labProjectionDate" type="range" class="ob-date-slider" min="0" max="100" value="100">
+
+            <div class="ob-sliders-row">
+              <div class="ob-slider-group">
+                <label for="obRangeSlider">Range: <strong id="obRangeLabel">&plusmn;30%</strong></label>
+                <input id="obRangeSlider" type="range" min="10" max="90" step="5" value="30">
+              </div>
+              <div class="ob-slider-group">
+                <label for="labVolatility">Implied Volatility: <strong id="obIvLabel">--</strong></label>
+                <input id="labVolatility" type="range" min="1" max="150" step="0.5" value="20">
+                <div class="ob-iv-ticks"><span>&times;0.5</span><span>&times;1</span><span>&times;2</span><span>&times;3</span></div>
+              </div>
+            </div>
+
+            <p class="option-disclaimer">Educational model only. Estimates use historical realized volatility as a proxy, not a live option chain, and are not investment advice.</p>
+          </section>
         </div>
-        <div class="table-wrap">
-          <table class="strategy-catalog-table">
-            <thead><tr><th>Strategy</th><th>Market Outlook</th><th>Position Structure</th><th></th></tr></thead>
-            <tbody id="strategyCatalogRows"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="option-builder strategy-lab-controls">
-        <form id="strategyLabForm" class="option-form">
-          <div class="option-field"><label for="labSymbol">Underlying</label><div class="stock-search"><input id="labSymbol" value="SPY" autocomplete="off"><div id="labSymbolSuggestions" class="stock-suggestions" hidden></div></div></div>
-          <div class="option-field"><label for="strategyType">Strategy</label><select id="strategyType"></select></div>
-          <div class="option-field"><label for="labSpot">Stock price</label><input id="labSpot" type="number" min="0.01" step="0.01" value="746"></div>
-          <div class="option-field"><label for="labExpiration">Expiration</label><input id="labExpiration" type="date"></div>
-          <div class="option-field"><label for="labVolatility">Volatility estimate</label><div class="input-suffix"><input id="labVolatility" type="number" min="0.1" max="500" step="0.1" value="20"><span>%</span></div></div>
-          <div class="option-field"><label for="labRate">Risk-free rate</label><div class="input-suffix"><input id="labRate" type="number" min="-10" max="50" step="0.01" value="4.25"><span>%</span></div></div>
-          <div class="option-field"><label for="labDividend">Dividend yield</label><div class="input-suffix"><input id="labDividend" type="number" min="0" max="50" step="0.01" value="1.2"><span>%</span></div></div>
-          <div class="option-field"><label for="labContracts">Contracts / units</label><input id="labContracts" type="number" min="1" max="100" step="1" value="1"></div>
-          <div class="option-builder-actions"><button id="analyzeStrategy" type="button">Analyze & Auto-Fill</button><button type="submit" class="secondary-btn">Recalculate</button></div>
-        </form>
-        <p id="labStatus" class="helper-text">Choose a ticker to generate a strategy and editable option legs.</p>
-      </section>
-
-      <section class="strategy-legs-panel">
-        <div class="admin-heading"><h2>Strategy Legs</h2><span>Premiums are model estimates</span></div>
-        <div class="table-wrap"><table class="strategy-legs-table"><thead><tr><th>Action</th><th>Instrument</th><th>Strike</th><th>Model / Entry Price</th><th>Expiration</th></tr></thead><tbody id="strategyLegRows"></tbody></table></div>
-      </section>
-
-      <section class="option-summary">
-        <article><span>Option Debit / Credit</span><strong id="labNetPremium">--</strong></article>
-        <article><span>Estimated Max Profit</span><strong id="labMaxProfit">--</strong></article>
-        <article><span>Estimated Max Loss</span><strong id="labMaxLoss">--</strong></article>
-        <article><span>Expiration Breakeven(s)</span><strong id="labBreakevens">--</strong></article>
-        <article><span>Strategy Bias</span><strong id="labBias">--</strong></article>
-      </section>
-
-      <section class="option-projection">
-        <div class="option-projection-controls">
-          <div class="option-field"><label for="labProjectionDate">Projection date</label><input id="labProjectionDate" type="date"></div>
-          <div class="option-field projected-price-field"><label for="labProjectedPrice">Projected stock price</label><input id="labProjectedPrice" type="range" min="1" max="1500" step="1"><output id="labProjectedPriceValue">--</output></div>
-          <article class="projection-result"><span>Estimated position value</span><strong id="labPositionValue">--</strong><span>Strategy P/L</span><strong id="labProjectedProfit">--</strong></article>
-        </div>
-        <div id="strategyPayoffChart" class="option-payoff-chart"></div>
-        <p class="option-disclaimer">Educational model only. “All strategies” here means the major standardized retail structures listed in the selector—not every possible custom combination. Estimates use historical realized volatility as a proxy, not a live option chain.</p>
-      </section>
-    </main>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
     <script src="/auth.js"></script><script src="/ticker.js"></script><script src="/stock-search.js"></script><script src="/strategy-assistant.js"></script><script src="/strategies.js"></script>
   </body>
 </html>

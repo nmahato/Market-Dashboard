@@ -2,95 +2,90 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Market Dashboard</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <h1>Market Dashboard</h1>
-          <p>Top active tickers, 14-period RSI, and oversold recovery signals.</p>
-        </div>
-        <div class="topbar-actions">
-          <nav class="page-nav" aria-label="Dashboard pages">
-            <a href="/index.html" aria-current="page">RSI Watch</a>
-            <a href="/">Movers</a>
-            <a href="/search.html">Search</a>
-            <a href="/indicator.html">Signals</a>
-            <a href="/options.html">Options</a>
-            <a href="/news.html">News</a>
-            <a href="/admin.html">Admin</a>
-          </nav>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Market Dashboard</h1>
+          
+          </div>
           <div class="status-panel">
             <span id="connectionDot" class="dot"></span>
             <span id="statusText">Starting</span>
             <strong id="countdown">--</strong>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <section class="summary">
-        <div>
-          <span>Buy Signals</span>
-          <strong id="buySignalCount">0</strong>
-        </div>
-        <div>
-          <span>Sell Signals</span>
-          <strong id="sellSignalCount">0</strong>
-        </div>
-        <div>
-          <span>Oversold</span>
-          <strong id="oversoldCount">0</strong>
-        </div>
-        <div>
-          <span>Extended</span>
-          <strong id="extendedCount">0</strong>
-        </div>
-        <div>
-          <span>Daily Top 10</span>
-          <strong id="topStockCount">0</strong>
-        </div>
-        <div>
-          <span>Updated</span>
-          <strong id="updatedAt">--</strong>
-        </div>
-      </section>
+        <div class="page-content">
+          <section class="summary">
+            <div>
+              <span>Buy Signals</span>
+              <strong id="buySignalCount">0</strong>
+            </div>
+            <div>
+              <span>Sell Signals</span>
+              <strong id="sellSignalCount">0</strong>
+            </div>
+            <div>
+              <span>Oversold</span>
+              <strong id="oversoldCount">0</strong>
+            </div>
+            <div>
+              <span>Extended</span>
+              <strong id="extendedCount">0</strong>
+            </div>
+            <div>
+              <span>Daily Top 10</span>
+              <strong id="topStockCount">0</strong>
+            </div>
+            <div>
+              <span>Updated</span>
+              <strong id="updatedAt">--</strong>
+            </div>
+          </section>
 
-      <section class="symbol-controls">
-        <p id="symbolStatus" class="helper-text">Loading the Admin-selected watchlist.</p>
-        <label id="showAllToggle" class="toggle-control" hidden>
-          <input id="showAllCheckbox" type="checkbox">
-          Show full daily list (Admin)
-        </label>
-        <a href="/admin.html">Choose watched stocks in Admin</a>
-      </section>
+          <section class="symbol-controls">
+            <!-- <p id="symbolStatus" class="helper-text">Loading the Admin-selected watchlist.</p> -->
+            <!-- <label id="showAllToggle" class="toggle-control" hidden>
+              <input id="showAllCheckbox" type="checkbox">
+              Show full daily list (Admin)
+            </label> -->
+            <!-- <a href="/admin.html">Choose watched stocks in Admin</a> -->
+          </section>
 
-      <section class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th><button class="sort-btn" data-sort="updatedAt">Updated <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="symbol">Ticker <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="price">Market Price <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="volume">Current Volume <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="avgVolume">Avg Volume <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="todayChangePercent">Today % Change <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="chartLast">Chart <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="rsi">RSI <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="previousRsi">Previous RSI <span aria-hidden="true"></span></button></th>
-              <th><button class="sort-btn" data-sort="state">Signal <span aria-hidden="true"></span></button></th>
-            </tr>
-          </thead>
-          <tbody id="rows">
-            <tr>
-              <td colspan="10" class="loading">Loading market data...</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-    </main>
+          <section class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <!-- <th><button class="sort-btn" data-sort="updatedAt">Updated <span aria-hidden="true"></span></button></th>-->
+                  <th><button class="sort-btn" data-sort="symbol">Ticker <span aria-hidden="true"></span></button></th> 
+                  <th><button class="sort-btn" data-sort="price">Market Price <span aria-hidden="true"></span></button></th>
+                  <th><button class="sort-btn" data-sort="volume">Current Volume <span aria-hidden="true"></span></button></th>
+                  <th><button class="sort-btn" data-sort="avgVolume">Avg Volume <span aria-hidden="true"></span></button></th>
+                  <th><button class="sort-btn" data-sort="todayChangePercent">Today % Change <span aria-hidden="true"></span></button></th>
+                  <th><button class="sort-btn" data-sort="chartLast">Chart <span aria-hidden="true"></span></button></th>
+                  <th><button class="sort-btn" data-sort="rsi">RSI <span aria-hidden="true"></span></button></th>
+                  <th><button class="sort-btn" data-sort="previousRsi">Previous RSI <span aria-hidden="true"></span></button></th>
+                  <th><button class="sort-btn" data-sort="state">Signal <span aria-hidden="true"></span></button></th>
+                </tr>
+              </thead>
+              <tbody id="rows">
+                <tr>
+                  <td colspan="10" class="loading">Loading market data...</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+    </div>
 
     <div id="signalAlert" class="signal-alert" role="alertdialog" aria-modal="true" aria-labelledby="signalAlertTitle" hidden>
       <div class="signal-alert-card">
@@ -101,6 +96,8 @@
         <button id="signalAlertDismiss" type="button">Got it</button>
       </div>
     </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
     <script src="/auth.js"></script>
     <script src="/ticker.js"></script>
     <script src="/stock-search.js"></script>

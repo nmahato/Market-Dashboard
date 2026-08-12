@@ -2,106 +2,107 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Long Strangle Planner</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <h1>Long Strangle Planner</h1>
-          <p>Estimate a long put plus long call across future stock prices and dates.</p>
-        </div>
-        <div class="topbar-actions">
-          <nav class="page-nav" aria-label="Dashboard pages">
-            <a href="/index.html">RSI Watch</a><a href="/">Movers</a><a href="/search.html">Search</a><a href="/indicator.html">Signals</a>
-            <a href="/options.html" aria-current="page">Options</a><a href="/news.html">News</a><a href="/admin.html">Admin</a>
-          </nav>
-        </div>
-      </header>
-
-      <nav class="strategy-tabs" aria-label="Option strategies">
-        <a href="/options.html">Covered Call</a>
-        <a href="/strangle.html" aria-current="page">Long Strangle</a>
-        <a href="/strategies.html">Strategy Lab</a>
-      </nav>
-
-      <section class="strangle-terminal" aria-label="Long strangle visual builder">
-        <div class="terminal-heading">
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
           <div>
-            <span class="terminal-kicker">Options Strategy</span>
-            <h2>Long Strangle <small title="Buy a put and call with different strikes">?</small></h2>
-            <div class="terminal-quote"><strong id="terminalSymbol">SPY</strong><b id="terminalSpot">$746.00</b><span id="terminalQuoteState">Model estimate</span></div>
+            <h1>Long Strangle Planner</h1>
+            <p>Estimate a long put plus long call across future stock prices and dates.</p>
           </div>
-          <div class="terminal-actions">
-            <button id="terminalEditLegs" type="button">Edit Inputs</button>
-            <a href="/strategies.html?strategy=long-strangle">Strategy Lab</a>
-            <button id="terminalReset" type="button">Reset</button>
-          </div>
-        </div>
-        <div class="terminal-section-label"><span>Expiration</span><strong id="terminalDays">-- days</strong></div>
-        <div id="terminalExpirations" class="expiration-strip"></div>
-        <div class="terminal-section-label"><span>Strikes</span><strong>Drag sliders or edit values below</strong></div>
-        <div class="strike-ruler">
-          <div id="strikeRulerTicks" class="strike-ruler-ticks"></div>
-          <div id="putStrikeMarker" class="strike-marker put-marker"><strong>--P</strong><span>Buy put</span></div>
-          <div id="callStrikeMarker" class="strike-marker call-marker"><strong>--C</strong><span>Buy call</span></div>
-          <i id="spotMarker" class="spot-marker" title="Current stock price"></i>
-        </div>
-        <div class="terminal-metrics">
-          <article><span>Net Debit</span><strong id="terminalDebit">--</strong></article>
-          <article><span>Max Loss</span><strong id="terminalMaxLoss">--</strong></article>
-          <article><span>Max Profit</span><strong>Unlimited</strong></article>
-          <article><span>Model Profit Probability</span><strong id="terminalProbability">--</strong></article>
-          <article><span>Breakevens</span><strong id="terminalBreakevens">--</strong></article>
-        </div>
-      </section>
+        </header>
 
-      <section class="strategy-assistant" aria-live="polite">
-        <div><span>Strategy Assistant</span><strong id="strategyRecommendation">Select an underlying to analyze</strong><p id="strategyRationale">The model compares trend, RSI, return, and realized-volatility behavior.</p></div>
-        <div id="strategyMetrics" class="strategy-metrics"></div>
-        <a id="strategyAction" class="strategy-action" href="/options.html" hidden>Open suggested planner</a>
-      </section>
+        <div class="page-content">
+          <nav class="strategy-tabs" aria-label="Option strategies">
+            <a href="/strategies.html?strategy=covered-call">Covered Call</a>
+            <a href="/strategies.html">Strategy Lab</a>
+          </nav>
 
-      <section id="strangleInputs" class="option-builder">
-        <form id="strangleForm" class="option-form">
-          <div class="option-field"><label for="strangleSymbol">Underlying</label><div class="stock-search"><input id="strangleSymbol" value="SPY" autocomplete="off"><div id="strangleSymbolSuggestions" class="stock-suggestions" hidden></div></div></div>
-          <div class="option-field"><label for="strangleStockPrice">Stock price</label><input id="strangleStockPrice" type="number" min="0.01" step="0.01" value="746"></div>
-          <div class="option-field"><label for="strangleContracts">Contracts per leg</label><input id="strangleContracts" type="number" min="1" max="100" step="1" value="1"></div>
-          <div class="option-field"><label for="putStrike">Put strike</label><input id="putStrike" type="number" min="0.01" step="0.50" value="745"><input id="putStrikeSlider" class="strike-slider" type="range" min="350" max="900" step="0.50" value="745" aria-label="Adjust put strike"></div>
-          <div class="option-field"><label for="putPremium">Put premium paid/share</label><input id="putPremium" type="number" min="0" step="0.01" value="8"></div>
-          <div class="option-field"><label for="putVolatility">Put implied volatility</label><div class="input-suffix"><input id="putVolatility" type="number" min="0.1" max="500" step="0.1" value="20"><span>%</span></div></div>
-          <div class="option-field"><label for="callStrike">Call strike</label><input id="callStrike" type="number" min="0.01" step="0.50" value="747"><input id="callStrikeSlider" class="strike-slider" type="range" min="350" max="900" step="0.50" value="747" aria-label="Adjust call strike"></div>
-          <div class="option-field"><label for="callPremium">Call premium paid/share</label><input id="callPremium" type="number" min="0" step="0.01" value="8"></div>
-          <div class="option-field"><label for="callVolatility">Call implied volatility</label><div class="input-suffix"><input id="callVolatility" type="number" min="0.1" max="500" step="0.1" value="20"><span>%</span></div></div>
-          <div class="option-field"><label for="strangleExpiration">Expiration</label><input id="strangleExpiration" type="date" value="2026-07-17"></div>
-          <div class="option-field"><label for="strangleRate">Risk-free rate</label><div class="input-suffix"><input id="strangleRate" type="number" min="-10" max="50" step="0.01" value="4.25"><span>%</span></div></div>
-          <div class="option-field"><label for="strangleDividend">Dividend yield</label><div class="input-suffix"><input id="strangleDividend" type="number" min="0" max="50" step="0.01" value="1.2"><span>%</span></div></div>
-          <div class="option-builder-actions"><button id="loadStrangleQuote" type="button">Load Current Price</button><button type="submit" class="secondary-btn">Recalculate</button></div>
-        </form>
-        <p id="strangleStatus" class="helper-text">Example: buy one SPY July 17, 2026 $745 put and one $747 call. Replace sample premiums and volatility with current values.</p>
-      </section>
+          <section class="strangle-terminal" aria-label="Long strangle visual builder">
+            <div class="terminal-heading">
+              <div>
+                <span class="terminal-kicker">Options Strategy</span>
+                <h2>Long Strangle <small title="Buy a put and call with different strikes">?</small></h2>
+                <div class="terminal-quote"><strong id="terminalSymbol">SPY</strong><b id="terminalSpot">$746.00</b><span id="terminalQuoteState">Model estimate</span></div>
+              </div>
+              <div class="terminal-actions">
+                <button id="terminalEditLegs" type="button">Edit Inputs</button>
+                <a href="/strategies.html?strategy=long-strangle">Strategy Lab</a>
+                <button id="terminalReset" type="button">Reset</button>
+              </div>
+            </div>
+            <div class="terminal-section-label"><span>Expiration</span><strong id="terminalDays">-- days</strong></div>
+            <div id="terminalExpirations" class="expiration-strip"></div>
+            <div class="terminal-section-label"><span>Strikes</span><strong>Drag sliders or edit values below</strong></div>
+            <div class="strike-ruler">
+              <div id="strikeRulerTicks" class="strike-ruler-ticks"></div>
+              <div id="putStrikeMarker" class="strike-marker put-marker"><strong>--P</strong><span>Buy put</span></div>
+              <div id="callStrikeMarker" class="strike-marker call-marker"><strong>--C</strong><span>Buy call</span></div>
+              <i id="spotMarker" class="spot-marker" title="Current stock price"></i>
+            </div>
+            <div class="terminal-metrics">
+              <article><span>Net Debit</span><strong id="terminalDebit">--</strong></article>
+              <article><span>Max Loss</span><strong id="terminalMaxLoss">--</strong></article>
+              <article><span>Max Profit</span><strong>Unlimited</strong></article>
+              <article><span>Model Profit Probability</span><strong id="terminalProbability">--</strong></article>
+              <article><span>Breakevens</span><strong id="terminalBreakevens">--</strong></article>
+            </div>
+          </section>
 
-      <section class="option-summary" aria-label="Long strangle summary">
-        <article><span>Theoretical Put</span><strong id="theoreticalPut">--</strong></article>
-        <article><span>Theoretical Call</span><strong id="strangleTheoreticalCall">--</strong></article>
-        <article><span>Total Debit</span><strong id="strangleDebit">--</strong></article>
-        <article><span>Lower Breakeven</span><strong id="lowerBreakeven">--</strong></article>
-        <article><span>Upper Breakeven</span><strong id="upperBreakeven">--</strong></article>
-        <article><span>Maximum Loss</span><strong id="strangleMaxLoss">--</strong></article>
-      </section>
+          <section class="strategy-assistant" aria-live="polite">
+            <div><span>Strategy Assistant</span><strong id="strategyRecommendation">Select an underlying to analyze</strong><p id="strategyRationale">The model compares trend, RSI, return, and realized-volatility behavior.</p></div>
+            <div id="strategyMetrics" class="strategy-metrics"></div>
+            <a id="strategyAction" class="strategy-action" href="/options.html" hidden>Open suggested planner</a>
+          </section>
 
-      <section class="option-projection">
-        <div class="option-projection-controls">
-          <div class="option-field"><label for="strangleProjectionDate">Projection date</label><input id="strangleProjectionDate" type="date"></div>
-          <div class="option-field projected-price-field"><label for="strangleProjectedPrice">Projected stock price</label><input id="strangleProjectedPrice" type="range" min="300" max="1100" step="1" value="746"><output id="strangleProjectedPriceValue">$746.00</output></div>
-          <article class="projection-result"><span>Estimated put + call value</span><strong id="projectedStrangleValue">--</strong><span>Long-strangle P/L</span><strong id="projectedStrangleProfit">--</strong></article>
+          <section id="strangleInputs" class="option-builder">
+            <form id="strangleForm" class="option-form">
+              <div class="option-field"><label for="strangleSymbol">Underlying</label><div class="stock-search"><input id="strangleSymbol" value="SPY" autocomplete="off"><div id="strangleSymbolSuggestions" class="stock-suggestions" hidden></div></div></div>
+              <div class="option-field"><label for="strangleStockPrice">Stock price</label><input id="strangleStockPrice" type="number" min="0.01" step="0.01" value="746"></div>
+              <div class="option-field"><label for="strangleContracts">Contracts per leg</label><input id="strangleContracts" type="number" min="1" max="100" step="1" value="1"></div>
+              <div class="option-field"><label for="putStrike">Put strike</label><input id="putStrike" type="number" min="0.01" step="0.50" value="745"><input id="putStrikeSlider" class="strike-slider" type="range" min="350" max="900" step="0.50" value="745" aria-label="Adjust put strike"></div>
+              <div class="option-field"><label for="putPremium">Put premium paid/share</label><input id="putPremium" type="number" min="0" step="0.01" value="8"></div>
+              <div class="option-field"><label for="putVolatility">Put implied volatility</label><div class="input-suffix"><input id="putVolatility" type="number" min="0.1" max="500" step="0.1" value="20"><span>%</span></div></div>
+              <div class="option-field"><label for="callStrike">Call strike</label><input id="callStrike" type="number" min="0.01" step="0.50" value="747"><input id="callStrikeSlider" class="strike-slider" type="range" min="350" max="900" step="0.50" value="747" aria-label="Adjust call strike"></div>
+              <div class="option-field"><label for="callPremium">Call premium paid/share</label><input id="callPremium" type="number" min="0" step="0.01" value="8"></div>
+              <div class="option-field"><label for="callVolatility">Call implied volatility</label><div class="input-suffix"><input id="callVolatility" type="number" min="0.1" max="500" step="0.1" value="20"><span>%</span></div></div>
+              <div class="option-field"><label for="strangleExpiration">Expiration</label><input id="strangleExpiration" type="date" value="2026-07-17"></div>
+              <div class="option-field"><label for="strangleRate">Risk-free rate</label><div class="input-suffix"><input id="strangleRate" type="number" min="-10" max="50" step="0.01" value="4.25"><span>%</span></div></div>
+              <div class="option-field"><label for="strangleDividend">Dividend yield</label><div class="input-suffix"><input id="strangleDividend" type="number" min="0" max="50" step="0.01" value="1.2"><span>%</span></div></div>
+              <div class="option-builder-actions"><button id="loadStrangleQuote" type="button">Load Current Price</button><button type="submit" class="secondary-btn">Recalculate</button></div>
+            </form>
+            <p id="strangleStatus" class="helper-text">Example: buy one SPY July 17, 2026 $745 put and one $747 call. Replace sample premiums and volatility with current values.</p>
+          </section>
+
+          <section class="option-summary" aria-label="Long strangle summary">
+            <article><span>Theoretical Put</span><strong id="theoreticalPut">--</strong></article>
+            <article><span>Theoretical Call</span><strong id="strangleTheoreticalCall">--</strong></article>
+            <article><span>Total Debit</span><strong id="strangleDebit">--</strong></article>
+            <article><span>Lower Breakeven</span><strong id="lowerBreakeven">--</strong></article>
+            <article><span>Upper Breakeven</span><strong id="upperBreakeven">--</strong></article>
+            <article><span>Maximum Loss</span><strong id="strangleMaxLoss">--</strong></article>
+          </section>
+
+          <section class="option-projection">
+            <div class="option-projection-controls">
+              <div class="option-field"><label for="strangleProjectionDate">Projection date</label><input id="strangleProjectionDate" type="date"></div>
+              <div class="option-field projected-price-field"><label for="strangleProjectedPrice">Projected stock price</label><input id="strangleProjectedPrice" type="range" min="300" max="1100" step="1" value="746"><output id="strangleProjectedPriceValue">$746.00</output></div>
+              <article class="projection-result"><span>Estimated put + call value</span><strong id="projectedStrangleValue">--</strong><span>Long-strangle P/L</span><strong id="projectedStrangleProfit">--</strong></article>
+            </div>
+            <div id="stranglePayoffChart" class="option-payoff-chart" aria-label="Long strangle profit and loss chart"></div>
+            <p class="option-disclaimer">Model estimate only—not a forecast or investment recommendation. Long options can lose the entire premium. Actual prices vary with liquidity, volatility, dividends, rates, and early exercise.</p>
+          </section>
         </div>
-        <div id="stranglePayoffChart" class="option-payoff-chart" aria-label="Long strangle profit and loss chart"></div>
-        <p class="option-disclaimer">Model estimate only—not a forecast or investment recommendation. Long options can lose the entire premium. Actual prices vary with liquidity, volatility, dividends, rates, and early exercise.</p>
-      </section>
-    </main>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
     <script src="/auth.js"></script>
     <script src="/ticker.js"></script>
     <script src="/stock-search.js"></script>
