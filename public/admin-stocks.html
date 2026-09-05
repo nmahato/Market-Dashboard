@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stocks</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Stocks</h1>
+            <p>Manage the shared Daily Top 10 pool and manually added tickers.</p>
+          </div>
+        </header>
+
+        <div class="page-content">
+          <nav class="admin-tabs" aria-label="Admin sections">
+            <a href="/admin.html">Operations</a>
+            <a href="/admin-users.html">Users &amp; Roles</a>
+            <a href="/admin-stocks.html" aria-current="page">Stocks</a>
+          </nav>
+
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>Daily Stocks</h2>
+              <span id="dailyStockState">--</span>
+            </div>
+            <form id="manualSymbolForm" class="admin-form manual-symbol-form">
+              <label for="manualSymbolInput">Add ticker manually</label>
+              <div class="stock-search">
+                <input id="manualSymbolInput" name="symbols" type="text" placeholder="Company name or symbol" autocomplete="off">
+                <div id="manualSymbolSuggestions" class="stock-suggestions" hidden></div>
+              </div>
+              <button type="submit">Add to List</button>
+            </form>
+            <div id="dailyStocks" class="admin-list">
+              <p class="loading">Loading daily stocks...</p>
+            </div>
+            <div class="admin-actions">
+              <button id="refreshDailyStocks" type="button" class="secondary-btn">Refresh Daily Stocks</button>
+              <button id="saveWatchlist" type="button">Save Watchlist</button>
+            </div>
+            <p id="stocksStatus" class="helper-text">Check automatic or manually added stocks you want displayed in the shared pool.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
+    <script src="/stock-search.js"></script>
+    <script src="/admin-stocks.js"></script>
+  </body>
+</html>

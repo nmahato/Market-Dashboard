@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Market Dashboard</title>
+    <title>My Watchlist</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -13,8 +13,8 @@
       <div class="app-main">
         <header class="page-header">
           <div>
-            <h1>Market Dashboard</h1>
-          
+            <h1>My Watchlist</h1>
+            <p>Your personal watchlist, synced from Robinhood plus any manually added symbols.</p>
           </div>
           <div class="status-panel">
             <span id="connectionDot" class="dot"></span>
@@ -42,7 +42,7 @@
               <strong id="extendedCount">0</strong>
             </div>
             <div>
-              <span>Daily Top 10</span>
+              <span>Watchlist Size</span>
               <strong id="topStockCount">0</strong>
             </div>
             <div>
@@ -51,13 +51,25 @@
             </div>
           </section>
 
+          <section class="symbol-controls" id="wishlistSwitcher" hidden>
+            <div class="wishlist-switcher-row">
+              <label for="wishlistSelect">Wishlist</label>
+              <select id="wishlistSelect"></select>
+              <button id="renameWishlistBtn" type="button" class="secondary-btn">Rename</button>
+              <button id="deleteWishlistBtn" type="button" class="secondary-btn danger-btn">Delete</button>
+              <button id="newWishlistBtn" type="button" class="secondary-btn">+ New Wishlist</button>
+            </div>
+          </section>
+
           <section class="symbol-controls">
-            <!-- <p id="symbolStatus" class="helper-text">Loading the Admin-selected watchlist.</p> -->
-            <!-- <label id="showAllToggle" class="toggle-control" hidden>
-              <input id="showAllCheckbox" type="checkbox">
-              Show full daily list (Admin)
-            </label> -->
-            <!-- <a href="/admin.html">Choose watched stocks in Admin</a> -->
+            <form id="addTickerForm" class="add-ticker-form">
+              <div class="stock-search">
+                <input id="addTickerInput" type="text" maxlength="10" autocomplete="off" placeholder="Add ticker (e.g. AMZN)">
+                <div id="addTickerSuggestions" class="stock-suggestions" hidden></div>
+              </div>
+              <button type="submit">Add</button>
+            </form>
+            <p id="addTickerStatus" class="helper-text"></p>
           </section>
 
           <section class="table-wrap">
@@ -74,6 +86,7 @@
                   <th><button class="sort-btn" data-sort="rsi">RSI <span aria-hidden="true"></span></button></th>
                   <th><button class="sort-btn" data-sort="previousRsi">Previous RSI <span aria-hidden="true"></span></button></th>
                   <th><button class="sort-btn" data-sort="state">Signal <span aria-hidden="true"></span></button></th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="rows">

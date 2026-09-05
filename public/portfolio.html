@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Portfolio</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Portfolio</h1>
+            <p>Track your holdings and unrealized profit/loss against live prices.</p>
+          </div>
+        </header>
+
+        <div class="page-content">
+          <section class="summary">
+            <div>
+              <span>Cost Basis</span>
+              <strong id="totalCostBasis">--</strong>
+            </div>
+            <div>
+              <span>Market Value</span>
+              <strong id="totalMarketValue">--</strong>
+            </div>
+            <div>
+              <span>Unrealized P&amp;L</span>
+              <strong id="totalPnl">--</strong>
+            </div>
+            <div>
+              <span>Return</span>
+              <strong id="totalPnlPercent">--</strong>
+            </div>
+          </section>
+
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>Add / Update Holding</h2>
+            </div>
+            <form id="holdingForm" class="admin-form">
+              <label for="holdingSymbol">Ticker</label>
+              <div class="stock-search">
+                <input id="holdingSymbol" type="text" autocomplete="off" placeholder="AAPL" required>
+                <div id="holdingSymbolSuggestions" class="stock-suggestions" hidden></div>
+              </div>
+              <label for="holdingQuantity">Quantity</label>
+              <input id="holdingQuantity" type="number" min="0" step="any" required>
+              <label for="holdingAvgCost">Avg cost / share</label>
+              <input id="holdingAvgCost" type="number" min="0" step="any" required>
+              <label for="holdingDate">Purchase date <span class="helper-text">(optional)</span></label>
+              <input id="holdingDate" type="date">
+              <button type="submit">Add to Position</button>
+            </form>
+            <p id="holdingStatus" class="helper-text">Adding an existing symbol increases the position using a weighted-average cost.</p>
+          </section>
+
+          <section class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Quantity</th>
+                  <th>Avg Cost</th>
+                  <th>Current Price</th>
+                  <th>Cost Basis</th>
+                  <th>Market Value</th>
+                  <th>Unrealized P&amp;L</th>
+                  <th>Return</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="holdingsBody">
+                <tr><td colspan="9" class="loading">Loading portfolio...</td></tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
+    <script src="/stock-search.js"></script>
+    <script src="/portfolio.js"></script>
+  </body>
+</html>

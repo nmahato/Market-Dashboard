@@ -318,7 +318,10 @@ async function analyzeUnderlying() {
 }
 
 Object.entries(STRATEGIES).forEach(([value, item]) => lab.type.add(new Option(item.name, value)));
-const requested = new URLSearchParams(location.search).get("strategy"); lab.type.value = STRATEGIES[requested] ? requested : "long-straddle";
+const initialParams = new URLSearchParams(location.search);
+const requested = initialParams.get("strategy"); lab.type.value = STRATEGIES[requested] ? requested : "long-straddle";
+const requestedSymbol = initialParams.get("symbol");
+if (requestedSymbol && requestedSymbol.trim()) lab.symbol.value = requestedSymbol.trim().toUpperCase();
 state.expirations = buildExpirations();
 state.expIndex = state.expirations.reduce((best, date, index) => Math.abs(date - Date.now() - 30 * 86400000) < Math.abs(state.expirations[best] - Date.now() - 30 * 86400000) ? index : best, 0);
 renderExpirationStrips();

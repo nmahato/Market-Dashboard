@@ -18,6 +18,7 @@ const chartStyle = document.getElementById("chartStyle");
 const expandChart = document.getElementById("expandChart");
 const resetChart = document.getElementById("resetChart");
 const saveChartImage = document.getElementById("saveChartImage");
+const popOutChart = document.getElementById("popOutChart");
 const zoomInChart = document.getElementById("zoomInChart");
 const zoomOutChart = document.getElementById("zoomOutChart");
 const overlayEma9 = document.getElementById("overlayEma9");
@@ -35,6 +36,12 @@ const newsModalTitle = document.getElementById("newsModalTitle");
 const newsModalSummary = document.getElementById("newsModalSummary");
 const newsModalTickers = document.getElementById("newsModalTickers");
 const newsModalLink = document.getElementById("newsModalLink");
+const aiPredictionBtn = document.getElementById("aiPredictionBtn");
+const aiPredictionResult = document.getElementById("aiPredictionResult");
+const signalsTableBody = document.getElementById("signalsTableBody");
+const signalsRange = document.getElementById("signalsRange");
+const watchlistPanelBody = document.getElementById("watchlistPanelBody");
+const watchlistPanelHelper = document.getElementById("watchlistPanelHelper");
 
 let latestResults = [];
 let timeIndexMap = new Map();
@@ -198,9 +205,10 @@ function formatTime(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
   return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit"
+    second: "2-digit",
+    hour12: false
   }).format(parsed);
 }
 
@@ -218,6 +226,17 @@ function timeAgo(value) {
 
 function toUnixTime(value) {
   return Math.floor(new Date(value).getTime() / 1000);
+}
+
+function formatAxisTime(time) {
+  const seconds = typeof time === "number" ? time : Date.parse(`${time}`) / 1000;
+  const date = new Date(seconds * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  const isMidnight = date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0;
+  if (isMidnight) {
+    return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "short", day: "2-digit" }).format(date);
+  }
+  return new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }
 
 function readCssVar(name, fallback) {
@@ -285,7 +304,11 @@ function initChart() {
     },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor: colors.line },
-    timeScale: { borderColor: colors.line, timeVisible: true, secondsVisible: false }
+    timeScale: { borderColor: colors.line, timeVisible: true, secondsVisible: false },
+    localization: {
+      timeFormatter: (time) => formatAxisTime(time),
+      dateFormat: "yyyy-MM-dd"
+    }
   });
 
   candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
@@ -541,11 +564,45 @@ function updateSummary(results) {
     : "--";
 }
 
+function renderSignalsTable(results) {
+  if (!signalsTableBody) return;
+  const signals = results
+    .filter((item) => item.buySignal || item.sellSignal)
+    .slice()
+    .sort((a, b) => Date.parse(b.time) - Date.parse(a.time));
+
+  if (!signals.length) {
+    signalsTableBody.innerHTML = '<tr><td colspan="6" class="loading">No buy/sell signals detected in the loaded range.</td></tr>';
+    if (signalsRange) signalsRange.textContent = "No signals detected yet.";
+    return;
+  }
+
+  signalsTableBody.innerHTML = signals.map((item) => {
+    const type = item.buySignal ? "BUY" : "SELL";
+    const badgeClass = item.buySignal ? "up" : "down";
+    return `
+      <tr>
+        <td>${escapeHtml(formatTime(item.time))}</td>
+        <td><span class="signal-badge ${badgeClass}">${type}</span></td>
+        <td>${formatNumber(item.entryPrice)}</td>
+        <td>${formatNumber(item.tp1)}</td>
+        <td>${formatNumber(item.tp2)}</td>
+        <td>${formatNumber(item.stopLoss)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  if (signalsRange) {
+    signalsRange.textContent = `${signals.length} signal${signals.length === 1 ? "" : "s"} detected (most recent first).`;
+  }
+}
+
 function renderResults(results, seriesKey) {
   latestResults = results;
   timeIndexMap = new Map(results.map((item, index) => [toUnixTime(item.time), index]));
   updateSummary(results);
   renderChartData(results, seriesKey);
+  renderSignalsTable(results);
 }
 
 async function fetchLiveCandles() {
@@ -559,9 +616,9 @@ async function fetchLiveCandles() {
 
   isLoadingLive = true;
   fetchLive.disabled = true;
-  statusText.textContent = "Refreshing";
-  countdown.textContent = "now";
-  indicatorStatus.textContent = `Loading live ${interval} candles for ${symbol}...`;
+  // statusText.textContent = "Refreshing";
+  // countdown.textContent = "now";
+  // indicatorStatus.textContent = `Loading live ${interval} candles for ${symbol}...`;
   try {
     if (window.resolveStockSymbol) {
       symbol = await window.resolveStockSymbol(symbol);
@@ -575,19 +632,19 @@ async function fetchLiveCandles() {
 
     const service = new TradingChartService();
     renderResults(service.calculate(payload.candles), `${payload.symbol}:${payload.interval}`);
-    indicatorStatus.textContent = `Live ${payload.symbol} ${payload.interval}: ${payload.candles.length} candles, updated ${formatTime(payload.updatedAt)}.`;
+    // indicatorStatus.textContent = `Live ${payload.symbol} ${payload.interval}: ${payload.candles.length} candles, updated ${formatTime(payload.updatedAt)}.`;
     statusText.textContent = "Live";
     connectionDot.className = "dot live";
   } catch (error) {
-    indicatorStatus.textContent = error.message;
+    // indicatorStatus.textContent = error.message;
     statusText.textContent = "Data error";
     connectionDot.className = "dot error";
   } finally {
     isLoadingLive = false;
     fetchLive.disabled = false;
-    nextRefresh = refreshSeconds;
-    countdown.textContent = `${nextRefresh}s`;
-  }
+  //   nextRefresh = refreshSeconds;
+  //   countdown.textContent = `${nextRefresh}s`;
+   }
 }
 
 chartForm.addEventListener("submit", (event) => {
@@ -709,6 +766,117 @@ if (stockNews) {
   });
 }
 
+let isLoadingAiPrediction = false;
+
+const OPTION_STRATEGY_LABELS = {
+  "long-call": "Long Call",
+  "long-put": "Long Put",
+  "covered-call": "Covered Call",
+  "protective-put": "Protective Put",
+  collar: "Collar",
+  "cash-secured-put": "Cash-Secured Put",
+  "bull-call-spread": "Bull Call Spread",
+  "bear-put-spread": "Bear Put Spread",
+  "bull-put-spread": "Bull Put Spread",
+  "bear-call-spread": "Bear Call Spread",
+  "long-straddle": "Long Straddle",
+  "long-strangle": "Long Strangle",
+  "short-straddle": "Short Straddle",
+  "short-strangle": "Short Strangle",
+  "iron-condor": "Iron Condor",
+  "iron-butterfly": "Iron Butterfly",
+  "call-butterfly": "Call Butterfly",
+  wait: "Wait / No Clean Fit"
+};
+
+function resetAiPrediction() {
+  if (!aiPredictionResult) return;
+  aiPredictionResult.innerHTML = '<p class="helper-text">Click "Get AI Prediction" to have Claude analyze this symbol\'s technicals and give a Buy/Sell/Hold call.</p>';
+}
+
+function renderOptionStrategySuggestion(symbol, analysis) {
+  const container = document.createElement("div");
+  container.className = "ai-strategy-suggestion";
+  if (!analysis || analysis.recommendation === "wait") {
+    container.innerHTML = '<p class="helper-text">No clean options strategy fit right now.</p>';
+    return container;
+  }
+  const label = OPTION_STRATEGY_LABELS[analysis.recommendation] || analysis.recommendation;
+  const link = analysis.recommendation === "long-strangle"
+    ? "/strangle.html"
+    : `/strategies.html?symbol=${encodeURIComponent(symbol)}&strategy=${encodeURIComponent(analysis.recommendation)}`;
+  container.innerHTML = `
+    <p class="ai-strategy-heading">Suggested option strategy</p>
+    <p><strong>${escapeHtml(label)}</strong> <span class="helper-text">(${escapeHtml(analysis.confidence)}% model confidence)</span></p>
+    <p class="ai-prediction-reasoning">${escapeHtml(analysis.rationale)}</p>
+    <a class="secondary-btn ai-strategy-link" href="${link}" target="_blank" rel="noopener">Set up this strategy &#8599;</a>
+  `;
+  return container;
+}
+
+async function loadOptionStrategySuggestion(symbol, verdict) {
+  if (!aiPredictionResult || (verdict !== "BUY" && verdict !== "SELL")) return;
+  const holder = document.createElement("div");
+  holder.className = "ai-strategy-suggestion";
+  holder.innerHTML = '<p class="loading">Checking option strategy fit...</p>';
+  aiPredictionResult.appendChild(holder);
+  try {
+    const response = await fetch(`/api/options-analysis?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    holder.replaceWith(renderOptionStrategySuggestion(symbol, payload));
+  } catch (error) {
+    holder.remove();
+  }
+}
+
+function renderAiPrediction(payload) {
+  if (!aiPredictionResult) return;
+  const verdictClass = payload.verdict === "BUY" ? "up" : payload.verdict === "SELL" ? "down" : "";
+  const basis = payload.basis || {};
+  const nameLine = payload.companyName
+    ? `<p class="ai-prediction-name">${escapeHtml(payload.companyName)} <span class="helper-text">(${escapeHtml(payload.symbol)})</span></p>`
+    : `<p class="ai-prediction-name">${escapeHtml(payload.symbol)}</p>`;
+  aiPredictionResult.innerHTML = `
+    ${nameLine}
+    <div class="ai-prediction-verdict ${verdictClass}">
+      <strong>${escapeHtml(payload.verdict)}</strong>
+      <span>Confidence: ${escapeHtml(payload.confidence)}</span>
+    </div>
+    <p class="ai-prediction-reasoning">${escapeHtml(payload.reasoning)}</p>
+    <p class="helper-text">Based on RSI ${formatNumber(basis.rsi)}, ${formatNumber(basis.todayChangePercent)}% today, state ${escapeHtml(basis.state || "--")}. Generated ${escapeHtml(timeAgo(payload.generatedAt))}.</p>
+  `;
+  loadOptionStrategySuggestion(payload.symbol, payload.verdict);
+}
+
+async function loadAiPrediction() {
+  if (isLoadingAiPrediction || !aiPredictionBtn) return;
+  isLoadingAiPrediction = true;
+  aiPredictionBtn.disabled = true;
+  const previousLabel = aiPredictionBtn.textContent;
+  aiPredictionBtn.textContent = "Analyzing...";
+  aiPredictionResult.innerHTML = '<p class="loading">Asking Claude to analyze this symbol...</p>';
+  try {
+    const symbol = await resolveCurrentSymbol();
+    const response = await fetch(`/api/ai-prediction?symbol=${encodeURIComponent(symbol)}`, {
+      cache: "no-store"
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    renderAiPrediction(payload);
+  } catch (error) {
+    aiPredictionResult.innerHTML = `<p class="loading">${escapeHtml(error.message)}</p>`;
+  } finally {
+    isLoadingAiPrediction = false;
+    aiPredictionBtn.disabled = false;
+    aiPredictionBtn.textContent = previousLabel;
+  }
+}
+
+if (aiPredictionBtn) {
+  aiPredictionBtn.addEventListener("click", loadAiPrediction);
+}
+
 const newsRefreshSeconds = 5;
 setInterval(() => {
   if (symbolInput.value.trim()) loadStockNews();
@@ -718,6 +886,7 @@ setInterval(() => {
   control.addEventListener("change", () => {
     fetchLiveCandles();
     loadStockNews();
+    resetAiPrediction();
   });
 });
 
@@ -727,11 +896,12 @@ if (window.createStockSearch && symbolSuggestions) {
     suggestions: symbolSuggestions,
     onSelect: function (item) {
       selectedSymbolName = item && item.name ? item.name : "";
-      if (selectedSymbolName) {
-        indicatorStatus.textContent = `Selected ${item.symbol}: ${selectedSymbolName}`;
-      }
+      // if (selectedSymbolName) {
+      //   indicatorStatus.textContent = `Selected ${item.symbol}: ${selectedSymbolName}`;
+      // }
       fetchLiveCandles();
       loadStockNews();
+      resetAiPrediction();
     }
   });
 }
@@ -788,6 +958,120 @@ if (saveChartImage) {
   });
 }
 
+if (popOutChart) {
+  popOutChart.addEventListener("click", () => {
+    const symbol = symbolInput.value.trim().toUpperCase() || "NVDA";
+    const interval = intervalSelect.value || "5m";
+    const url = `/chart.html?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&popup=1`;
+    const width = 1100;
+    const height = 750;
+    const left = Math.max(0, Math.round((window.screen.width - width) / 2));
+    const top = Math.max(0, Math.round((window.screen.height - height) / 2));
+    window.open(
+      url,
+      `chartPopup_${symbol}`,
+      `popup=yes,resizable=yes,scrollbars=yes,width=${width},height=${height},left=${left},top=${top}`
+    );
+  });
+}
+
+if (queryParams.get("popup") === "1") {
+  document.documentElement.classList.add("popup-mode");
+  document.body.classList.add("popup-mode");
+}
+
+function formatChangePercent(value) {
+  if (!Number.isFinite(value)) return "--";
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(2)}%`;
+}
+
+let isLoadingWatchlistPanel = false;
+let latestWatchlistPanelItems = [];
+
+function renderWatchlistPanel(items) {
+  if (!watchlistPanelBody) return;
+  latestWatchlistPanelItems = items;
+  if (!items.length) {
+    watchlistPanelBody.innerHTML = '<tr><td colspan="3" class="loading">No wishlist symbols yet.</td></tr>';
+    if (watchlistPanelHelper) watchlistPanelHelper.textContent = "No wishlist symbols yet.";
+    return;
+  }
+
+  const activeSymbol = symbolInput.value.trim().toUpperCase();
+  watchlistPanelBody.innerHTML = items.map((item) => {
+    const changeClass = Number.isFinite(item.todayChangePercent)
+      ? (item.todayChangePercent >= 0 ? "positive" : "negative")
+      : "neutral";
+    const rowClass = item.symbol === activeSymbol ? "active-symbol" : "";
+    return `
+      <tr class="${rowClass}" data-watchlist-symbol="${escapeHtml(item.symbol)}">
+        <td class="symbol">${escapeHtml(item.symbol)}</td>
+        <td>${formatNumber(item.price)}</td>
+        <td><span class="change ${changeClass}">${formatChangePercent(item.todayChangePercent)}</span></td>
+      </tr>
+    `;
+  }).join("");
+
+  if (watchlistPanelHelper) {
+    watchlistPanelHelper.textContent = `${items.length} symbol${items.length === 1 ? "" : "s"}. Click a row to load its chart.`;
+  }
+}
+
+const GUEST_WISHLIST_KEY = "guestWishlist";
+let isGuest = false;
+
+function readGuestWishlist() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GUEST_WISHLIST_KEY));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function loadWatchlistPanel() {
+  if (isLoadingWatchlistPanel || !watchlistPanelBody) return;
+  isLoadingWatchlistPanel = true;
+  try {
+    const storedWishlistId = Number(localStorage.getItem("activeWishlistId"));
+    const url = isGuest
+      ? `/api/market?symbols=${encodeURIComponent(readGuestWishlist().join(","))}`
+      : `/api/market${storedWishlistId ? `?wishlistId=${storedWishlistId}` : ""}`;
+    const response = await fetch(url, { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    const items = Array.isArray(payload.data) ? payload.data : [];
+    renderWatchlistPanel(items);
+  } catch (error) {
+    if (watchlistPanelHelper) watchlistPanelHelper.textContent = error.message;
+    watchlistPanelBody.innerHTML = '<tr><td colspan="3" class="loading">Unable to load wishlist.</td></tr>';
+  } finally {
+    isLoadingWatchlistPanel = false;
+  }
+}
+
+if (watchlistPanelBody) {
+  watchlistPanelBody.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-watchlist-symbol]");
+    if (!row) return;
+    symbolInput.value = row.dataset.watchlistSymbol;
+    fetchLiveCandles();
+    loadStockNews();
+    resetAiPrediction();
+    renderWatchlistPanel(latestWatchlistPanelItems);
+  });
+
+  document.addEventListener("account:ready", (event) => {
+    const user = event.detail;
+    isGuest = Boolean(user && user.role === "guest");
+    loadWatchlistPanel();
+  });
+
+  loadWatchlistPanel();
+  setInterval(loadWatchlistPanel, 5000);
+}
+
 const refreshSeconds = 1;
 let nextRefresh = refreshSeconds;
 
@@ -796,8 +1080,8 @@ setInterval(() => {
   if (nextRefresh <= 0 && !isLoadingLive) {
     fetchLiveCandles();
   }
-  countdown.textContent = isLoadingLive ? "now" : `${Math.max(nextRefresh, 0)}s`;
-}, 1000);
+  // countdown.textContent = isLoadingLive ? "now" : `${Math.max(nextRefresh, 0)}s`;
+}, 2000);
 
 function applyUrlParams() {
   const symbol = queryParams.get("symbol");

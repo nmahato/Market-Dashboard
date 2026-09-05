@@ -42,10 +42,10 @@
                 </select>
                 <button id="fetchLive" type="button">Refresh</button>
               </div>
-              <div class="indicator-actions">
+              <!-- <div class="indicator-actions">
                 <button id="stockNews" type="button" class="secondary-btn">News</button>
               </div>
-              <p id="indicatorStatus" class="helper-text">Loading live candles...</p>
+              <p id="indicatorStatus" class="helper-text">Loading live candles...</p> -->
               <div class="indicator-news">
                 <h2>Current News</h2>
                 <p id="stockNewsStatus">News will load for the selected symbol.</p>
@@ -73,52 +73,106 @@
                 <strong id="lastSignal">--</strong>
               </div>
             </section>
+
+            <section class="ai-prediction-panel" aria-label="AI prediction">
+              <div class="ai-prediction-header">
+                <h2>AI Prediction</h2>
+                <button id="aiPredictionBtn" type="button" class="secondary-btn">Get AI Prediction</button>
+              </div>
+              <div id="aiPredictionResult" class="ai-prediction-result">
+                <p class="helper-text">Click "Get AI Prediction" to have Claude analyze this symbol's technicals and give a Buy/Sell/Hold call.</p>
+              </div>
+            </section>
           </section>
 
-          <section class="chart-panel" aria-label="Real-time chart">
+          <div class="chart-layout">
+            <section class="chart-panel" aria-label="Real-time chart">
+              <div class="chart-header">
+                <div>
+                  <h2>Price, EMA9/21 &amp; MACD</h2>
+                  <p id="chartRange">No chart data yet.</p>
+                </div>
+                <div class="chart-tools">
+                  <label for="chartStyle">Chart</label>
+                  <select id="chartStyle">
+                    <option value="candles">Candles</option>
+                    <option value="line">Line</option>
+                    <option value="both">Candles + Lines</option>
+                  </select>
+                  <div class="chart-zoom-tools" role="group" aria-label="Chart zoom controls">
+                    <button id="zoomInChart" type="button" class="secondary-btn chart-icon-btn" aria-label="Zoom in" title="Zoom in">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M15.5 15.5 21 21M10.5 7.5v6M7.5 10.5h6"></path></svg>
+                    </button>
+                    <button id="zoomOutChart" type="button" class="secondary-btn chart-icon-btn" aria-label="Zoom out" title="Zoom out">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M15.5 15.5 21 21M7.5 10.5h6"></path></svg>
+                    </button>
+                  </div>
+                  <button id="expandChart" type="button" class="secondary-btn">Expand</button>
+                  <button id="resetChart" type="button" class="secondary-btn">Reset</button>
+                  <button id="saveChartImage" type="button" class="secondary-btn">Save Image</button>
+                  <button id="popOutChart" type="button" class="secondary-btn" title="Open this chart in a separate, resizable window">Pop Out</button>
+                </div>
+              </div>
+              <div class="chart-tools chart-overlay-row">
+                <div class="chart-overlays" role="group" aria-label="Chart overlays">
+                  <label><input id="overlayEma9" type="checkbox" checked> EMA9</label>
+                  <label><input id="overlayEma21" type="checkbox" checked> EMA21</label>
+                  <label><input id="overlayVolume" type="checkbox" checked> Volume</label>
+                  <label><input id="overlayMacd" type="checkbox" checked> MACD</label>
+                </div>
+                <div class="chart-legend" aria-label="Chart legend">
+                  <span><i class="legend-price"></i>Close</span>
+                  <span><i class="legend-ema9"></i>EMA9</span>
+                  <span><i class="legend-ema21"></i>EMA21</span>
+                  <span><i class="legend-volume"></i>Volume</span>
+                  <span><i class="legend-macd"></i>MACD</span>
+                  <span><i class="legend-buy"></i>Buy</span>
+                  <span><i class="legend-sell"></i>Sell</span>
+                </div>
+              </div>
+              <div id="indicatorChart" class="indicator-chart"></div>
+            </section>
+
+            <aside class="watchlist-panel" aria-label="Wishlist">
+              <div class="chart-header">
+                <div>
+                  <h2>Wishlist</h2>
+                  <p id="watchlistPanelHelper" class="helper-text">Loading your wishlist...</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Ticker</th><th>Price</th><th>Change</th></tr></thead>
+                  <tbody id="watchlistPanelBody"><tr><td colspan="3" class="loading">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </aside>
+          </div>
+
+          <section class="signals-panel" aria-label="Bulk buy and sell signal details">
             <div class="chart-header">
               <div>
-                <h2>Price, EMA9/21 &amp; MACD</h2>
-                <p id="chartRange">No chart data yet.</p>
-              </div>
-              <div class="chart-tools">
-                <label for="chartStyle">Chart</label>
-                <select id="chartStyle">
-                  <option value="candles">Candles</option>
-                  <option value="line">Line</option>
-                  <option value="both">Candles + Lines</option>
-                </select>
-                <div class="chart-zoom-tools" role="group" aria-label="Chart zoom controls">
-                  <button id="zoomInChart" type="button" class="secondary-btn chart-icon-btn" aria-label="Zoom in" title="Zoom in">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M15.5 15.5 21 21M10.5 7.5v6M7.5 10.5h6"></path></svg>
-                  </button>
-                  <button id="zoomOutChart" type="button" class="secondary-btn chart-icon-btn" aria-label="Zoom out" title="Zoom out">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M15.5 15.5 21 21M7.5 10.5h6"></path></svg>
-                  </button>
-                </div>
-                <button id="expandChart" type="button" class="secondary-btn">Expand</button>
-                <button id="resetChart" type="button" class="secondary-btn">Reset</button>
-                <button id="saveChartImage" type="button" class="secondary-btn">Save Image</button>
+                <h2>Bulk Buy/Sell Signals</h2>
+                <p id="signalsRange">No signals detected yet.</p>
               </div>
             </div>
-            <div class="chart-tools chart-overlay-row">
-              <div class="chart-overlays" role="group" aria-label="Chart overlays">
-                <label><input id="overlayEma9" type="checkbox" checked> EMA9</label>
-                <label><input id="overlayEma21" type="checkbox" checked> EMA21</label>
-                <label><input id="overlayVolume" type="checkbox" checked> Volume</label>
-                <label><input id="overlayMacd" type="checkbox" checked> MACD</label>
-              </div>
-              <div class="chart-legend" aria-label="Chart legend">
-                <span><i class="legend-price"></i>Close</span>
-                <span><i class="legend-ema9"></i>EMA9</span>
-                <span><i class="legend-ema21"></i>EMA21</span>
-                <span><i class="legend-volume"></i>Volume</span>
-                <span><i class="legend-macd"></i>MACD</span>
-                <span><i class="legend-buy"></i>Buy</span>
-                <span><i class="legend-sell"></i>Sell</span>
-              </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Entry</th>
+                    <th>TP1</th>
+                    <th>TP2</th>
+                    <th>Stop Loss</th>
+                  </tr>
+                </thead>
+                <tbody id="signalsTableBody">
+                  <tr><td colspan="6" class="loading">No signals detected yet.</td></tr>
+                </tbody>
+              </table>
             </div>
-            <div id="indicatorChart" class="indicator-chart"></div>
           </section>
         </div>
       </div>

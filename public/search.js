@@ -126,6 +126,8 @@ const countryQuery = document.getElementById("countryQuery");
 const earningsSelect = document.getElementById("earningsSelect");
 const sortSelect = document.getElementById("sortSelect");
 const sortDirectionSelect = document.getElementById("sortDirectionSelect");
+const toggleAdvancedFilters = document.getElementById("toggleAdvancedFilters");
+const advancedFilters = document.getElementById("advancedFilters");
 const resetScreener = document.getElementById("resetScreener");
 const screenerTable = document.getElementById("screenerTable");
 const screenerRows = document.getElementById("screenerRows");
@@ -167,7 +169,83 @@ const SORT_FIELD_MAP = {
 
 let symbolSearch;
 let searchIsLoading = false;
+let searchPendingRefresh = false;
 let currentRows = [];
+const aiPredictionResults = new Map();
+
+function renderAiCell(symbol) {
+  const entry = aiPredictionResults.get(symbol);
+  if (!entry || entry.status === "idle") {
+    return `<button type="button" class="ai-predict-btn" data-ai-symbol="${escapeHtml(symbol)}">AI</button>`;
+  }
+  if (entry.status === "loading") {
+    return '<span class="ai-predict-loading">...</span>';
+  }
+  if (entry.status === "error") {
+    return `<button type="button" class="ai-predict-btn ai-predict-error" data-ai-symbol="${escapeHtml(symbol)}" title="${escapeHtml(entry.error)}">Retry</button>`;
+  }
+  const verdictClass = entry.verdict === "BUY" ? "ai-verdict-buy" : entry.verdict === "SELL" ? "ai-verdict-sell" : "ai-verdict-hold";
+  const badge = `<button type="button" class="ai-verdict-badge ${verdictClass}" data-ai-symbol="${escapeHtml(symbol)}" title="${escapeHtml(entry.reasoning || "")} (confidence: ${escapeHtml(entry.confidence || "--")})">${escapeHtml(entry.verdict)}</button>`;
+  if (entry.verdict !== "BUY" && entry.verdict !== "SELL") return badge;
+  const strategyLink = `<a class="ai-strategy-icon-link" href="/strategies.html?symbol=${encodeURIComponent(symbol)}" target="_blank" rel="noopener" title="Set up an option strategy for this ${entry.verdict} signal">&#128200;</a>`;
+  return `${badge}${strategyLink}`;
+}
+
+async function fetchAiPrediction(symbol) {
+  const existing = aiPredictionResults.get(symbol);
+  if (existing && existing.status === "loading") return;
+  aiPredictionResults.set(symbol, { status: "loading" });
+  renderTable();
+  try {
+    const response = await fetch(`/api/ai-prediction?symbol=${encodeURIComponent(symbol)}`, {
+      cache: "no-store"
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    aiPredictionResults.set(symbol, {
+      status: "done",
+      verdict: payload.verdict,
+      confidence: payload.confidence,
+      reasoning: payload.reasoning
+    });
+  } catch (error) {
+    aiPredictionResults.set(symbol, { status: "error", error: error.message });
+  }
+  renderTable();
+}
+
+screenerRows.addEventListener("click", (event) => {
+  const aiButton = event.target.closest("[data-ai-symbol]");
+  if (aiButton) {
+    fetchAiPrediction(aiButton.dataset.aiSymbol);
+    return;
+  }
+  const wishlistButton = event.target.closest("[data-add-wishlist]");
+  if (wishlistButton) {
+    addToWishlist(wishlistButton.dataset.addWishlist, wishlistButton);
+  }
+});
+
+async function addToWishlist(symbol, button) {
+  button.disabled = true;
+  button.textContent = "Adding...";
+  try {
+    const response = await fetch("/api/watchlist/symbols", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: symbol })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    addedToWishlist.add(symbol);
+    renderTable();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "+ Wishlist";
+    window.alert(error.message);
+  }
+}
+
 let tableSortKey = "volume";
 let tableSortDirection = "desc";
 let currentPage = 1;
@@ -268,7 +346,7 @@ function renderTable() {
   renderPager(rows.length);
 
   if (!rows.length) {
-    screenerRows.innerHTML = '<tr><td colspan="24" class="loading">No stocks matched the current search.</td></tr>';
+    screenerRows.innerHTML = '<tr><td colspan="26" class="loading">No stocks matched the current search.</td></tr>';
     return;
   }
 
@@ -303,14 +381,34 @@ function renderTable() {
         <td data-col="rsi" class="rsi">${Number.isFinite(row.rsi) ? row.rsi.toFixed(2) : "--"}</td>
         <td data-col="previousRsi" class="rsi">${Number.isFinite(row.previousRsi) ? row.previousRsi.toFixed(2) : "--"}</td>
         <td data-col="signal"><span class="badge ${stateClass(row.state)}">${escapeHtml(row.state || "ERROR")}</span></td>
+        <td data-col="ai">${renderAiCell(row.symbol)}</td>
+        <td data-col="watchlist">${renderWatchlistCell(row.symbol)}</td>
       </tr>
     `;
   }).join("");
 }
 
+let currentAccount = null;
+const addedToWishlist = new Set();
+
+function renderWatchlistCell(symbol) {
+  if (currentAccount && currentAccount.role === "guest") {
+    return '<span class="helper-text">Sign up</span>';
+  }
+  if (addedToWishlist.has(symbol)) {
+    return '<span class="badge BUY_SIGNAL">Added</span>';
+  }
+  return `<button type="button" class="secondary-btn" data-add-wishlist="${escapeHtml(symbol)}">+ Wishlist</button>`;
+}
+
+document.addEventListener("account:ready", (event) => {
+  currentAccount = event.detail;
+});
+
 function renderRows(payload) {
   currentRows = Array.isArray(payload.data) ? payload.data : [];
   currentPage = 1;
+  aiPredictionResults.clear();
   const rows = currentRows;
   matchCount.textContent = rows.length;
   searchBuyCount.textContent = rows.filter((row) => row.state === "BUY SIGNAL").length;
@@ -352,7 +450,10 @@ function buildParams() {
 }
 
 async function loadScreener() {
-  if (searchIsLoading) return;
+  if (searchIsLoading) {
+    searchPendingRefresh = true;
+    return;
+  }
   searchIsLoading = true;
   setSearchStatus("Searching", "live");
   try {
@@ -369,9 +470,13 @@ async function loadScreener() {
     screenerHelper.textContent = error.message;
     currentRows = [];
     renderPager(0);
-    screenerRows.innerHTML = `<tr><td colspan="24" class="loading">${escapeHtml(error.message)}</td></tr>`;
+    screenerRows.innerHTML = `<tr><td colspan="26" class="loading">${escapeHtml(error.message)}</td></tr>`;
   } finally {
     searchIsLoading = false;
+    if (searchPendingRefresh) {
+      searchPendingRefresh = false;
+      loadScreener();
+    }
   }
 }
 
@@ -384,6 +489,33 @@ resetScreener.addEventListener("click", () => {
   screenerForm.reset();
   loadScreener();
 });
+
+const ADVANCED_FILTERS_KEY = "marketRsiDashboard.advancedFiltersOpen";
+
+function setAdvancedFiltersOpen(open) {
+  advancedFilters.hidden = !open;
+  toggleAdvancedFilters.setAttribute("aria-expanded", String(open));
+  toggleAdvancedFilters.innerHTML = open
+    ? '<span aria-hidden="true">&#9662;</span> Hide advanced filters'
+    : '<span aria-hidden="true">&#9662;</span> Show advanced filters';
+  try {
+    localStorage.setItem(ADVANCED_FILTERS_KEY, open ? "1" : "0");
+  } catch {
+    // localStorage unavailable (private mode, etc.) - state just won't persist
+  }
+}
+
+toggleAdvancedFilters.addEventListener("click", () => {
+  setAdvancedFiltersOpen(advancedFilters.hidden);
+});
+
+let storedAdvancedFiltersOpen = true;
+try {
+  storedAdvancedFiltersOpen = localStorage.getItem(ADVANCED_FILTERS_KEY) !== "0";
+} catch {
+  // localStorage unavailable - default to open
+}
+setAdvancedFiltersOpen(storedAdvancedFiltersOpen);
 
 sortButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -410,6 +542,29 @@ sortDirectionSelect.addEventListener("change", () => {
   syncTableSortFromForm();
   currentPage = 1;
   renderTable();
+});
+
+const PRESET_DEFAULT_SORT = {
+  "top-gainers": { sort: "change", direction: "desc" },
+  "top-losers": { sort: "change", direction: "asc" }
+};
+
+presetSelect.addEventListener("change", () => {
+  const defaults = PRESET_DEFAULT_SORT[presetSelect.value];
+  if (defaults) {
+    sortSelect.value = defaults.sort;
+    sortDirectionSelect.value = defaults.direction;
+  }
+  loadScreener();
+});
+
+[
+  signalSelect, minPrice, maxPrice, minVolume, minAvgVolume, minRelativeVolume,
+  marketCapSelect, maxPE, minDividendYield, minShortFloat, analystRecomSelect,
+  minTargetPrice, maxTargetPrice, sharesOutstandingSelect, floatSelect,
+  exchangeSelect, sectorSelect, industryQuery, countryQuery, earningsSelect
+].forEach((field) => {
+  field.addEventListener("change", () => loadScreener());
 });
 
 screenerTabs.forEach((tab) => {

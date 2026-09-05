@@ -19,6 +19,15 @@ const signalAlertDismiss = document.getElementById("signalAlertDismiss");
 const signalAlertType = document.getElementById("signalAlertType");
 const signalAlertTitle = document.getElementById("signalAlertTitle");
 const signalAlertList = document.getElementById("signalAlertList");
+const addTickerForm = document.getElementById("addTickerForm");
+const addTickerInput = document.getElementById("addTickerInput");
+const addTickerSuggestions = document.getElementById("addTickerSuggestions");
+const addTickerStatus = document.getElementById("addTickerStatus");
+const wishlistSwitcher = document.getElementById("wishlistSwitcher");
+const wishlistSelect = document.getElementById("wishlistSelect");
+const renameWishlistBtn = document.getElementById("renameWishlistBtn");
+const deleteWishlistBtn = document.getElementById("deleteWishlistBtn");
+const newWishlistBtn = document.getElementById("newWishlistBtn");
 
 const refreshSeconds = 5;
 let nextRefresh = refreshSeconds;
@@ -28,7 +37,30 @@ let isRefreshing = false;
 let pendingRefresh = false;
 let audioContext;
 let showAll = false;
+let isGuest = false;
+let wishlists = [];
+let activeWishlistId = null;
+const ACTIVE_WISHLIST_KEY = "activeWishlistId";
 const signalStateKey = "marketRsiDashboard.signalStates";
+
+const GUEST_WISHLIST_KEY = "guestWishlist";
+
+function readGuestWishlist() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GUEST_WISHLIST_KEY));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeGuestWishlist(symbols) {
+  try {
+    localStorage.setItem(GUEST_WISHLIST_KEY, JSON.stringify(symbols));
+  } catch {
+    /* localStorage unavailable (private mode, etc.) */
+  }
+}
 
 function readSignalStates() {
   try {
@@ -225,7 +257,7 @@ function render(data) {
   sellSignalCount.textContent = sellSignals;
   oversoldCount.textContent = oversold;
   extendedCount.textContent = extended;
-  topStockCount.textContent = topStocks ? topStocks.symbols.length : 0;
+  topStockCount.textContent = trackedSymbols.length;
   updatedAt.textContent = formatTime(data.updatedAt);
   if (trackedSymbols.length) {
     const source = topStocks ? topStocks.source : "watchlist";
@@ -267,6 +299,7 @@ function render(data) {
           <td class="rsi">${Number.isFinite(item.rsi) ? item.rsi.toFixed(2) : "--"}</td>
           <td class="rsi">${Number.isFinite(item.previousRsi) ? item.previousRsi.toFixed(2) : "--"}</td>
           <td><a class="badge signal-link ${stateClass}" href="/chart.html?symbol=${encodeURIComponent(item.symbol)}&live=1">${signalLabel}</a></td>
+          <td><button type="button" class="remove-ticker-btn" data-remove-symbol="${item.symbol}" title="Remove ${item.symbol} from watchlist">Remove</button></td>
         </tr>
       `;
     })
@@ -296,10 +329,15 @@ async function loadData() {
   statusText.textContent = "Refreshing";
   countdown.textContent = "now";
   try {
-    const url = showAll ? "/api/market?view=all" : "/api/market";
+    const url = isGuest
+      ? `/api/market?symbols=${encodeURIComponent(readGuestWishlist().join(","))}`
+      : showAll
+        ? "/api/market?view=all"
+        : `/api/market${activeWishlistId ? `?wishlistId=${activeWishlistId}` : ""}`;
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`Request failed with ${response.status}`);
     const data = await response.json();
+    if (!isGuest && data.activeWishlistId) activeWishlistId = data.activeWishlistId;
     render(data);
     statusText.textContent = "Live";
     connectionDot.className = "dot live";
@@ -344,6 +382,122 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+function renderWishlistSelect() {
+  if (!wishlistSelect) return;
+  wishlistSelect.innerHTML = wishlists.map((list) => `
+    <option value="${list.id}" ${list.id === activeWishlistId ? "selected" : ""}>${escapeHtmlAttr(list.name)} (${list.symbolCount})</option>
+  `).join("");
+}
+
+function escapeHtmlAttr(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[character]));
+}
+
+async function loadWishlists() {
+  try {
+    const response = await fetch("/api/wishlists", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    wishlists = payload.wishlists || [];
+    const stored = Number(localStorage.getItem(ACTIVE_WISHLIST_KEY));
+    activeWishlistId = wishlists.some((list) => list.id === stored) ? stored : (wishlists[0] ? wishlists[0].id : null);
+    renderWishlistSelect();
+    if (wishlistSwitcher) wishlistSwitcher.hidden = false;
+  } catch (error) {
+    if (addTickerStatus) addTickerStatus.textContent = error.message;
+  }
+  loadData();
+}
+
+if (wishlistSelect) {
+  wishlistSelect.addEventListener("change", () => {
+    activeWishlistId = Number(wishlistSelect.value);
+    try {
+      localStorage.setItem(ACTIVE_WISHLIST_KEY, String(activeWishlistId));
+    } catch {
+      /* localStorage unavailable */
+    }
+    loadData();
+  });
+}
+
+if (newWishlistBtn) {
+  newWishlistBtn.addEventListener("click", async () => {
+    const name = window.prompt("Name your new wishlist:");
+    if (!name || !name.trim()) return;
+    try {
+      const response = await fetch("/api/wishlists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+      wishlists = payload.wishlists || [];
+      activeWishlistId = wishlists[wishlists.length - 1].id;
+      renderWishlistSelect();
+      loadData();
+    } catch (error) {
+      if (addTickerStatus) addTickerStatus.textContent = error.message;
+    }
+  });
+}
+
+if (renameWishlistBtn) {
+  renameWishlistBtn.addEventListener("click", async () => {
+    const current = wishlists.find((list) => list.id === activeWishlistId);
+    const name = window.prompt("Rename wishlist:", current ? current.name : "");
+    if (!name || !name.trim()) return;
+    try {
+      const response = await fetch(`/api/wishlists/${activeWishlistId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+      wishlists = payload.wishlists || [];
+      renderWishlistSelect();
+    } catch (error) {
+      if (addTickerStatus) addTickerStatus.textContent = error.message;
+    }
+  });
+}
+
+if (deleteWishlistBtn) {
+  deleteWishlistBtn.addEventListener("click", async () => {
+    const current = wishlists.find((list) => list.id === activeWishlistId);
+    if (!current) return;
+    if (!window.confirm(`Delete wishlist "${current.name}" and its symbols? This can't be undone.`)) return;
+    try {
+      const response = await fetch(`/api/wishlists/${activeWishlistId}`, { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+      wishlists = payload.wishlists || [];
+      activeWishlistId = wishlists[0] ? wishlists[0].id : null;
+      renderWishlistSelect();
+      loadData();
+    } catch (error) {
+      if (addTickerStatus) addTickerStatus.textContent = error.message;
+    }
+  });
+}
+
+document.addEventListener("account:ready", (event) => {
+  const user = event.detail;
+  isGuest = Boolean(user && user.role === "guest");
+  if (addTickerStatus && isGuest) {
+    addTickerStatus.textContent = "Guest mode: your wishlist is saved only in this browser.";
+  }
+  if (isGuest) {
+    loadData();
+  } else {
+    loadWishlists();
+  }
+});
+
 if (showAllToggle && showAllCheckbox) {
   document.addEventListener("account:ready", (event) => {
     const user = event.detail;
@@ -361,6 +515,80 @@ if (showAllToggle && showAllCheckbox) {
     loadData();
   });
 }
+
+if (window.createStockSearch && addTickerInput && addTickerSuggestions) {
+  window.createStockSearch({
+    input: addTickerInput,
+    suggestions: addTickerSuggestions,
+    onSelect: () => addTickerInput.focus()
+  });
+}
+
+async function addTicker(symbol) {
+  addTickerStatus.textContent = `Adding ${symbol}...`;
+  if (isGuest) {
+    const list = readGuestWishlist();
+    if (!list.includes(symbol)) list.push(symbol);
+    writeGuestWishlist(list);
+    addTickerInput.value = "";
+    addTickerStatus.textContent = `Added ${symbol} to your guest wishlist (saved in this browser only).`;
+    loadData();
+    return;
+  }
+  try {
+    const response = await fetch("/api/watchlist/symbols", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: symbol, wishlistId: activeWishlistId })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    addTickerInput.value = "";
+    addTickerStatus.textContent = `Added ${symbol} to your watchlist.`;
+    loadData();
+  } catch (error) {
+    addTickerStatus.textContent = error.message;
+  }
+}
+
+async function removeTicker(symbol) {
+  if (!window.confirm(`Remove ${symbol} from your watchlist?`)) return;
+  addTickerStatus.textContent = `Removing ${symbol}...`;
+  if (isGuest) {
+    writeGuestWishlist(readGuestWishlist().filter((item) => item !== symbol));
+    addTickerStatus.textContent = `Removed ${symbol} from your guest wishlist.`;
+    loadData();
+    return;
+  }
+  try {
+    const response = await fetch("/api/watchlist/symbols", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: symbol, wishlistId: activeWishlistId })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+    addTickerStatus.textContent = `Removed ${symbol} from your watchlist.`;
+    loadData();
+  } catch (error) {
+    addTickerStatus.textContent = error.message;
+  }
+}
+
+if (addTickerForm) {
+  addTickerForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const symbol = addTickerInput.value.trim().toUpperCase();
+    if (!symbol) return;
+    addTicker(symbol);
+  });
+}
+
+rows.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-symbol]");
+  if (!button) return;
+  removeTicker(button.dataset.removeSymbol);
+});
 
 updateSortHeaders();
 loadData();

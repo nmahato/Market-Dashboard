@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Economic Calendar</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Economic Calendar</h1>
+            <p>Upcoming macroeconomic releases (CPI, jobs data, Fed speakers, auctions) with consensus and prior readings.</p>
+          </div>
+          <div class="status-panel">
+            <span id="econCalendarDot" class="dot"></span>
+            <span id="econCalendarStatus">Starting</span>
+          </div>
+        </header>
+
+        <div class="page-content">
+          <section class="screener-controls">
+            <form id="econCalendarForm" class="screener-form">
+              <div class="screener-row">
+                <div>
+                  <label for="econDaysAheadSelect">Range</label>
+                  <select id="econDaysAheadSelect" name="days">
+                    <option value="3">Next 3 days</option>
+                    <option value="7" selected>Next 7 days</option>
+                    <option value="14">Next 14 days</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="econCountrySelect">Country</label>
+                  <select id="econCountrySelect" name="country">
+                    <option value="United States" selected>United States</option>
+                    <option value="all">All Countries</option>
+                    <option value="Euro Area">Euro Area</option>
+                    <option value="United Kingdom">United Kingdom</option>
+                    <option value="Japan">Japan</option>
+                    <option value="China">China</option>
+                    <option value="Canada">Canada</option>
+                  </select>
+                </div>
+                <div class="screener-row-search">
+                  <label for="econCalendarQuery">Event or country</label>
+                  <input id="econCalendarQuery" type="text" autocomplete="off" placeholder="e.g. CPI, FOMC, Nonfarm Payrolls">
+                </div>
+              </div>
+              <div class="screener-row-actions">
+                <button type="submit">Search</button>
+                <button id="resetEconCalendar" type="button" class="secondary-btn">Reset</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="summary">
+            <div>
+              <span>Events in Range</span>
+              <strong id="econCalendarCount">0</strong>
+            </div>
+            <div>
+              <span>Reporting Today</span>
+              <strong id="econCalendarTodayCount">0</strong>
+            </div>
+            <div>
+              <span>Countries</span>
+              <strong id="econCalendarCountryCount">0</strong>
+            </div>
+          </section>
+          <p id="econCalendarHelper" class="helper-text">Loading economic calendar...</p>
+
+          <section id="econCalendarGroups" class="calendar-groups"></section>
+        </div>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
+    <script src="/economic.js"></script>
+  </body>
+</html>

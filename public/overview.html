@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Markets Overview</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Markets Overview</h1>
+            <p>Today's top gainers, losers, 52-week new highs/lows, unusual volume, news, and earnings across the US market.</p>
+          </div>
+          <div class="status-panel">
+            <span id="overviewDot" class="dot"></span>
+            <span id="overviewStatus">Starting</span>
+          </div>
+        </header>
+
+        <div class="page-content">
+          <section class="screener-controls">
+            <form id="overviewForm" class="screener-form">
+              <div class="screener-row">
+                <div>
+                  <label for="overviewMinPrice">Min price</label>
+                  <input id="overviewMinPrice" type="number" min="0" step="1" value="50">
+                </div>
+              </div>
+              <div class="screener-row-actions">
+                <button type="submit">Apply</button>
+                <button id="refreshOverview" type="button" class="secondary-btn">Refresh</button>
+              </div>
+            </form>
+          </section>
+
+          <div class="overview-grid">
+            <section class="overview-group" aria-label="Top 20 gainers">
+              <h2 class="overview-heading">Top 20 Gainers <span id="gainersCount" class="overview-count"></span></h2>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th><button type="button" class="sort-btn" data-sort-key="symbol">Ticker <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="price">Price <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="todayChangePercent">Change <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="volume">Volume <span aria-hidden="true"></span></button></th>
+                  </tr></thead>
+                  <tbody id="gainersBody"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="overview-group" aria-label="Top 20 losers">
+              <h2 class="overview-heading">Top 20 Losers <span id="losersCount" class="overview-count"></span></h2>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th><button type="button" class="sort-btn" data-sort-key="symbol">Ticker <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="price">Price <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="todayChangePercent">Change <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="volume">Volume <span aria-hidden="true"></span></button></th>
+                  </tr></thead>
+                  <tbody id="losersBody"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="overview-group" aria-label="New 52-week highs">
+              <h2 class="overview-heading">New 52-Week Highs <span id="newHighsCount" class="overview-count"></span></h2>
+              <p class="helper-text">Scanned from today's most-active/gainers/losers pool, not a full market scan — can be sparse on quiet days.</p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th><button type="button" class="sort-btn" data-sort-key="symbol">Ticker <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="price">Price <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="fiftyTwoWeekHigh">52w High <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="todayChangePercent">Change <span aria-hidden="true"></span></button></th>
+                  </tr></thead>
+                  <tbody id="newHighsBody"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="overview-group" aria-label="New 52-week lows">
+              <h2 class="overview-heading">New 52-Week Lows <span id="newLowsCount" class="overview-count"></span></h2>
+              <p class="helper-text">Scanned from today's most-active/gainers/losers pool, not a full market scan — can be sparse on quiet days.</p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th><button type="button" class="sort-btn" data-sort-key="symbol">Ticker <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="price">Price <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="fiftyTwoWeekLow">52w Low <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="todayChangePercent">Change <span aria-hidden="true"></span></button></th>
+                  </tr></thead>
+                  <tbody id="newLowsBody"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="overview-group" aria-label="Unusual volume (bulk deal proxy)">
+              <h2 class="overview-heading">Unusual Volume <span id="bulkDealCount" class="overview-count"></span></h2>
+              <p class="helper-text">US markets don't publish NSE/BSE-style "bulk deal" reports, so this surfaces the closest equivalent: stocks trading at the largest multiple of their average volume today.</p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th><button type="button" class="sort-btn" data-sort-key="symbol">Ticker <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="price">Price <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="relativeVolume">Rel. Volume <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="volume">Volume <span aria-hidden="true"></span></button></th>
+                  </tr></thead>
+                  <tbody id="bulkDealBody"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <section aria-label="Today's earnings results">
+            <div class="chart-header">
+              <div>
+                <h2>Today's Earnings</h2>
+                <p id="earningsTodayHelper">Loading today's earnings...</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th><button type="button" class="sort-btn" data-sort-key="symbol">Ticker <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="company">Company <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="timing">Timing <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="epsEstimate">EPS Est. <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="epsActual">EPS Actual <span aria-hidden="true"></span></button></th>
+                    <th><button type="button" class="sort-btn" data-sort-key="epsSurprisePercent">Surprise <span aria-hidden="true"></span></button></th>
+                  </tr>
+                </thead>
+                <tbody id="earningsTodayBody"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section aria-label="Daily top news">
+            <div class="chart-header">
+              <div>
+                <h2>Daily Top News</h2>
+                <p id="newsTodayHelper">Loading market news...</p>
+              </div>
+            </div>
+            <div id="newsTodayList" class="news-list">
+              <p class="loading">Loading market news...</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
+    <script src="/overview.js"></script>
+  </body>
+</html>

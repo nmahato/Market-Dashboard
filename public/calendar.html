@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Earnings Calendar</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Earnings Calendar</h1>
+            <p>Upcoming US company earnings dates from Yahoo Finance, with consensus EPS estimates where available.</p>
+          </div>
+          <div class="status-panel">
+            <span id="calendarDot" class="dot"></span>
+            <span id="calendarStatus">Starting</span>
+          </div>
+        </header>
+
+        <div class="page-content">
+          <section class="screener-controls">
+            <form id="calendarForm" class="screener-form">
+              <div class="screener-row">
+                <div>
+                  <label for="daysAheadSelect">Range</label>
+                  <select id="daysAheadSelect" name="days">
+                    <option value="today">Today</option>
+                    <option value="back3">Last 3 days</option>
+                    <option value="7">Next 7 days</option>
+                    <option value="14">Next 14 days</option>
+                    <option value="30">Next 30 days</option>
+                    <option value="60" selected>Next 60 days</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="timingSelect">Timing</label>
+                  <select id="timingSelect" name="timing">
+                    <option value="">Any</option>
+                    <option value="BMO">Before Open</option>
+                    <option value="AMC">After Close</option>
+                  </select>
+                </div>
+                <div class="screener-row-search">
+                  <label for="calendarQuery">Ticker or company</label>
+                  <input id="calendarQuery" type="text" autocomplete="off" placeholder="e.g. AAPL, Apple">
+                </div>
+              </div>
+              <div class="screener-row-actions">
+                <button type="submit">Search</button>
+                <button id="resetCalendar" type="button" class="secondary-btn">Reset</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="summary">
+            <div>
+              <span>Events in Range</span>
+              <strong id="calendarCount">0</strong>
+            </div>
+            <div>
+              <span>Reporting Today</span>
+              <strong id="calendarTodayCount">0</strong>
+            </div>
+            <div>
+              <span>Before Open</span>
+              <strong id="calendarBmoCount">0</strong>
+            </div>
+            <div>
+              <span>After Close</span>
+              <strong id="calendarAmcCount">0</strong>
+            </div>
+          </section>
+          <p id="calendarHelper" class="helper-text">Loading earnings calendar...</p>
+          <p id="nextReportHint" class="helper-text" hidden></p>
+
+          <section id="calendarGroups" class="calendar-groups"></section>
+        </div>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
+    <script src="/calendar.js"></script>
+  </body>
+</html>

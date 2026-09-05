@@ -84,14 +84,11 @@
                 </div>
               </div>
 
-              <div class="screener-tabs" role="tablist" aria-label="Column view">
-                <button type="button" class="screener-tab active" data-view="overview" role="tab" aria-selected="true">Overview</button>
-                <button type="button" class="screener-tab" data-view="descriptive" role="tab" aria-selected="false">Descriptive</button>
-                <button type="button" class="screener-tab" data-view="fundamental" role="tab" aria-selected="false">Fundamental</button>
-                <button type="button" class="screener-tab" data-view="technical" role="tab" aria-selected="false">Technical</button>
-                <button type="button" class="screener-tab" data-view="all" role="tab" aria-selected="false">All</button>
-              </div>
+              <button type="button" id="toggleAdvancedFilters" class="screener-toggle" aria-expanded="true" aria-controls="advancedFilters">
+                <span aria-hidden="true">&#9662;</span> Hide advanced filters
+              </button>
 
+              <div id="advancedFilters">
               <div class="screener-group-label">Descriptive</div>
               <div class="screener-row">
                 <div>
@@ -226,6 +223,7 @@
                   <input id="minRelativeVolume" name="minRelativeVolume" type="number" min="0" step="0.1" placeholder="e.g. 1.5">
                 </div>
               </div>
+              </div>
 
               <div class="screener-row-actions">
                 <button type="submit">Search</button>
@@ -253,6 +251,14 @@
             </div>
           </section>
           <p id="screenerHelper" class="helper-text">Loading stock search...</p>
+
+          <div class="screener-tabs" role="tablist" aria-label="Column view">
+            <button type="button" class="screener-tab active" data-view="overview" role="tab" aria-selected="true">Overview</button>
+            <button type="button" class="screener-tab" data-view="descriptive" role="tab" aria-selected="false">Descriptive</button>
+            <button type="button" class="screener-tab" data-view="fundamental" role="tab" aria-selected="false">Fundamental</button>
+            <button type="button" class="screener-tab" data-view="technical" role="tab" aria-selected="false">Technical</button>
+            <button type="button" class="screener-tab" data-view="all" role="tab" aria-selected="false">All</button>
+          </div>
 
           <section class="table-wrap">
             <table id="screenerTable" class="screener-table" data-view="overview">
@@ -282,11 +288,13 @@
                   <th data-col="rsi"><button type="button" class="sort-btn" data-sort-key="rsi">RSI <span aria-hidden="true"></span></button></th>
                   <th data-col="previousRsi"><button type="button" class="sort-btn" data-sort-key="previousRsi">Previous RSI <span aria-hidden="true"></span></button></th>
                   <th data-col="signal"><button type="button" class="sort-btn" data-sort-key="state">Signal <span aria-hidden="true"></span></button></th>
+                  <th data-col="ai">AI</th>
+                  <th data-col="watchlist">Wishlist</th>
                 </tr>
               </thead>
               <tbody id="screenerRows">
                 <tr>
-                  <td colspan="24" class="loading">Loading stock search...</td>
+                  <td colspan="26" class="loading">Loading stock search...</td>
                 </tr>
               </tbody>
             </table>

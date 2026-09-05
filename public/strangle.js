@@ -353,3 +353,10 @@ if (window.createStockSearch && fields.suggestions) {
 }
 fields.symbol.addEventListener("change", () => loadCurrentPrice(true));
 recalculateStrangle();
+
+const strangleQueryParams = new URLSearchParams(window.location.search);
+const strangleUrlSymbol = strangleQueryParams.get("symbol");
+if (strangleUrlSymbol) {
+  fields.symbol.value = strangleUrlSymbol.trim().toUpperCase();
+  loadCurrentPrice(true);
+}

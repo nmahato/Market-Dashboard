@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Users &amp; Roles</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Users &amp; Roles</h1>
+            <p>Register new accounts and manage who has admin access.</p>
+          </div>
+        </header>
+
+        <div class="page-content">
+          <nav class="admin-tabs" aria-label="Admin sections">
+            <a href="/admin.html">Operations</a>
+            <a href="/admin-users.html" aria-current="page">Users &amp; Roles</a>
+            <a href="/admin-stocks.html">Stocks</a>
+          </nav>
+
+          <section class="admin-panel">
+            <div class="admin-heading">
+              <h2>Existing Users</h2>
+              <span id="userCount">0 users</span>
+            </div>
+            <div class="admin-actions">
+              <button id="addUserBtn" type="button">+ Add User</button>
+            </div>
+            <p id="usersStatus" class="helper-text"></p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Verified</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="usersList">
+                  <tr><td colspan="8" class="loading">Loading users...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="userModal" class="form-modal" hidden>
+      <div class="form-modal-card">
+        <button id="userModalClose" class="form-modal-close" type="button" aria-label="Close">&times;</button>
+        <h2 id="userModalTitle">Add User</h2>
+        <form id="userForm" class="login-form">
+          <label for="modalUsername">Username</label>
+          <input id="modalUsername" name="username" type="text" autocomplete="off" minlength="3" required>
+          <label for="modalEmail">Email</label>
+          <input id="modalEmail" name="email" type="email" autocomplete="off" required>
+          <label for="modalFullName">Full name <span class="helper-text">(optional)</span></label>
+          <input id="modalFullName" name="full_name" type="text" autocomplete="off">
+          <label for="modalPhone">Phone number <span class="helper-text">(optional)</span></label>
+          <input id="modalPhone" name="phone_number" type="tel" autocomplete="off">
+          <label for="modalDob">Date of birth <span class="helper-text">(optional)</span></label>
+          <input id="modalDob" name="date_of_birth" type="date" autocomplete="off">
+          <label for="modalPassword" id="modalPasswordLabel">Password</label>
+          <input id="modalPassword" name="password" type="password" autocomplete="new-password" minlength="6">
+          <label for="modalRole">Role</label>
+          <select id="modalRole" name="role">
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+          </select>
+          <label for="modalStatus">Status</label>
+          <select id="modalStatus" name="status">
+            <option value="pending">Pending</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+            <option value="closed">Closed</option>
+          </select>
+          <label><input id="modalEmailVerified" type="checkbox"> Email verified</label>
+          <label><input id="modalPhoneVerified" type="checkbox"> Phone verified</label>
+          <button type="submit" id="userFormSubmit">Add User</button>
+          <p id="userModalError" class="login-error"></p>
+        </form>
+      </div>
+    </div>
+
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
+    <script src="/admin-users.js"></script>
+  </body>
+</html>

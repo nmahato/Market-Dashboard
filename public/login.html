@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign In</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="login-body">
+    <main class="login-card">
+      <div class="login-brand">
+        <span class="sidebar-brand-mark"></span>
+        <div>
+          <strong>Market Dashboard</strong>
+          <span>Live RSI &amp; Options</span>
+        </div>
+      </div>
+      <h1>Sign in</h1>
+      <p class="helper-text">Sign in with your account to see your personal watchlist.</p>
+      <form id="loginForm" class="login-form">
+        <label for="loginUsername">Email</label>
+        <input id="loginUsername" name="email" type="text" autocomplete="username" required autofocus>
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Sign in</button>
+        <p id="loginError" class="login-error"></p>
+      </form>
+      <div class="login-divider"><span>or</span></div>
+      <button id="guestButton" type="button" class="secondary-btn login-guest-btn">Continue as Guest</button>
+      <p class="helper-text">Guests get read-only browsing with a wishlist saved only in this browser.</p>
+      <p class="helper-text">Don't have an account? <a href="/register.html">Create one</a>.</p>
+    </main>
+    <script src="/theme.js"></script>
+    <script src="/login.js"></script>
+  </body>
+</html>

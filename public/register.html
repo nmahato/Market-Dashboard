@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create Account</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="login-body">
+    <main class="login-card register-card">
+      <div class="login-brand">
+        <span class="sidebar-brand-mark"></span>
+        <div>
+          <strong>Market Dashboard</strong>
+          <span>Live RSI &amp; Options</span>
+        </div>
+      </div>
+
+      <div id="registerStep">
+        <h1>Create account</h1>
+        <p class="helper-text">You must be 18 or older. Your account needs admin approval before you can sign in.</p>
+        <form id="registerForm" class="login-form">
+          <label for="regFullName">Full name</label>
+          <input id="regFullName" name="full_name" type="text" autocomplete="name" required>
+          <label for="regEmail">Email</label>
+          <input id="regEmail" name="email" type="email" autocomplete="email" required>
+          <label for="regPhone">Phone number <span class="helper-text">(optional)</span></label>
+          <input id="regPhone" name="phone_number" type="tel" autocomplete="tel">
+          <label for="regDob">Date of birth</label>
+          <input id="regDob" name="date_of_birth" type="date" autocomplete="bday" required>
+          <label for="regPassword">Password</label>
+          <input id="regPassword" name="password" type="password" autocomplete="new-password" minlength="6" required>
+          <label for="regPasswordConfirm">Confirm password</label>
+          <input id="regPasswordConfirm" name="password_confirm" type="password" autocomplete="new-password" minlength="6" required>
+          <button type="submit">Create account</button>
+          <p id="registerError" class="login-error"></p>
+        </form>
+        <p class="helper-text">Already have an account? <a href="/login.html">Sign in</a>.</p>
+      </div>
+
+      <div id="verifyStep" hidden>
+        <h1>Verify your email</h1>
+        <p class="helper-text">We emailed a 6-digit code to <strong id="verifyEmailLabel"></strong>.</p>
+        <form id="verifyForm" class="login-form">
+          <label for="verifyCode">Verification code</label>
+          <input id="verifyCode" name="code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required>
+          <button type="submit">Verify</button>
+          <p id="verifyError" class="login-error"></p>
+        </form>
+        <button id="resendCodeBtn" type="button" class="secondary-btn login-guest-btn">Resend code</button>
+      </div>
+
+      <div id="doneStep" hidden>
+        <h1>Account created</h1>
+        <p class="helper-text" id="doneMessage">Your email is verified. Your account is awaiting admin approval — you'll be able to sign in once approved.</p>
+        <p class="helper-text"><a href="/login.html">Back to sign in</a></p>
+      </div>
+    </main>
+    <script src="/theme.js"></script>
+    <script src="/register.js"></script>
+  </body>
+</html>

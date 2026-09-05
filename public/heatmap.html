@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var c=localStorage.getItem("accentColor");if(c)document.documentElement.style.setProperty("--accent",c);}catch(e){}})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Heat Map</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar"></aside>
+      <div class="app-main">
+        <header class="page-header">
+          <div>
+            <h1>Heat Map</h1>
+            <p>Tile size follows market cap, color follows today's % change.</p>
+          </div>
+          <div class="status-panel">
+            <span id="heatmapDot" class="dot"></span>
+            <span id="heatmapStatus">Starting</span>
+          </div>
+        </header>
+
+        <div class="page-content">
+          <section class="screener-controls">
+            <form id="heatmapForm" class="screener-form">
+              <div class="screener-row">
+                <div>
+                  <label for="heatmapMinPrice">Min price</label>
+                  <input id="heatmapMinPrice" type="number" min="0" step="1" value="10">
+                </div>
+              </div>
+              <div class="screener-row-actions">
+                <button type="submit">Apply</button>
+                <button id="refreshHeatmap" type="button" class="secondary-btn">Refresh</button>
+              </div>
+            </form>
+          </section>
+
+          <p id="heatmapHelper" class="helper-text">Loading heat map...</p>
+          <div id="heatmapGrid" class="heatmap-grid"></div>
+        </div>
+      </div>
+    </div>
+    <script src="/app-shell.js"></script>
+    <script src="/theme.js"></script>
+    <script src="/auth.js"></script>
+    <script src="/ticker.js"></script>
+    <script src="/heatmap.js"></script>
+  </body>
+</html>

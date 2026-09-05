@@ -6,10 +6,20 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const sqlite3 = require("sqlite3").verbose();
+const Anthropic = require("@anthropic-ai/sdk");
+const nodemailer = require("nodemailer");
 
 const PORT = process.env.PORT || 4180;
 const SESSION_COOKIE_NAME = "session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MIN_REGISTRATION_AGE = 18;
+const USER_LIST_COLUMNS = `
+  id, username, email, phone_number AS phoneNumber, full_name AS fullName, role, status,
+  email_verified_at AS emailVerifiedAt, phone_verified_at AS phoneVerifiedAt,
+  created_at AS createdAt
+`;
+const EMAIL_OTP_TTL_MS = 10 * 60 * 1000;
+const EMAIL_OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const DB_PATH = process.env.SQLITE_DB_PATH || path.join(__dirname, "data", "market-watch.sqlite");
 const DEFAULT_SYMBOLS = ["MU", "MRVL", "NVDA", "TSLA", "INTC", "SNDK", "AMD", "AVGO", "AAPL", "MSFT"];
 const MAX_SYMBOLS = 50;
@@ -21,7 +31,7 @@ const ALPACA_PAPER_URL = "https://paper-api.alpaca.markets";
 const ALPACA_BUY_NOTIONAL = Math.max(1, Math.min(Number(process.env.ALPACA_BUY_NOTIONAL) || 100, 1000));
 const ALPACA_MAX_DAILY_ORDERS = Math.max(1, Math.min(Number(process.env.ALPACA_MAX_DAILY_ORDERS) || 3, 20));
 const ALPACA_ALLOWED_SYMBOLS = new Set(normalizeSymbols(process.env.ALPACA_ALLOWED_SYMBOLS));
-const TOP_STOCK_COUNT = 100;
+const TOP_STOCK_COUNT = 10;
 const TOP_STOCK_REFRESH_MS = 24 * 60 * 60 * 1000;
 const SCREENER_PRESETS = new Map([
   ["most-active", { label: "Most Active", scrId: "most_actives" }],
@@ -53,7 +63,42 @@ const tradingExecutionsInFlight = new Set();
 let paperTradeBatchRunning = false;
 const sessions = new Map();
 
-function initDatabase() {
+async function migrateGlobalWishlistToAdmin() {
+  const existing = await dbGet("SELECT COUNT(*) AS count FROM user_watchlist_symbols");
+  if (existing && existing.count > 0) return;
+  if (!manualSymbols.length) return;
+
+  const admin = await dbGet("SELECT id FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1");
+  if (!admin) return;
+
+  for (const symbol of manualSymbols) {
+    await dbRun(
+      "INSERT OR IGNORE INTO user_watchlist_symbols (user_id, symbol) VALUES (?, ?)",
+      [admin.id, symbol]
+    );
+  }
+  console.log(`Migrated ${manualSymbols.length} global wishlist symbol(s) to admin user id ${admin.id}.`);
+}
+
+async function migrateSingleWishlistsToNamedLists() {
+  const existing = await dbGet("SELECT COUNT(*) AS count FROM wishlists");
+  if (existing && existing.count > 0) return;
+
+  const userIds = await dbAll("SELECT DISTINCT user_id FROM user_watchlist_symbols");
+  for (const row of userIds) {
+    const symbols = await dbAll("SELECT symbol FROM user_watchlist_symbols WHERE user_id = ?", [row.user_id]);
+    if (!symbols.length) continue;
+    const inserted = await dbRun("INSERT INTO wishlists (user_id, name) VALUES (?, 'My Watchlist')", [row.user_id]);
+    for (const { symbol } of symbols) {
+      await dbRun("INSERT OR IGNORE INTO wishlist_symbols (wishlist_id, symbol) VALUES (?, ?)", [inserted.id, symbol]);
+    }
+  }
+  if (userIds.length) {
+    console.log(`Migrated single per-user wishlists into named lists for ${userIds.length} user(s).`);
+  }
+}
+
+async function initDatabase() {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   db = new sqlite3.Database(DB_PATH, (error) => {
     if (error) {
@@ -61,80 +106,143 @@ function initDatabase() {
     }
   });
 
-  db.serialize(() => {
-    db.run(`
-      CREATE TABLE IF NOT EXISTS market_snapshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        symbol TEXT NOT NULL,
-        price REAL,
-        volume INTEGER,
-        avg_volume INTEGER,
-        today_change_percent REAL,
-        rsi REAL,
-        previous_rsi REAL,
-        state TEXT NOT NULL,
-        crossed_back_above_30 INTEGER NOT NULL DEFAULT 0,
-        crossed_back_below_70 INTEGER NOT NULL DEFAULT 0,
-        error TEXT,
-        observed_at TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    db.run("ALTER TABLE market_snapshots ADD COLUMN crossed_back_below_70 INTEGER NOT NULL DEFAULT 0", (error) => {
-      if (error && !/duplicate column/i.test(error.message)) {
-        console.error("Failed to add sell crossover column:", error.message);
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS market_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      price REAL,
+      volume INTEGER,
+      avg_volume INTEGER,
+      today_change_percent REAL,
+      rsi REAL,
+      previous_rsi REAL,
+      state TEXT NOT NULL,
+      crossed_back_above_30 INTEGER NOT NULL DEFAULT 0,
+      crossed_back_below_70 INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      observed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await dbRun("ALTER TABLE market_snapshots ADD COLUMN crossed_back_below_70 INTEGER NOT NULL DEFAULT 0").catch((error) => {
+    if (!/duplicate column/i.test(error.message)) {
+      console.error("Failed to add sell crossover column:", error.message);
+    }
+  });
+  await dbRun("CREATE INDEX IF NOT EXISTS idx_market_snapshots_symbol_observed ON market_snapshots(symbol, observed_at)");
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS whatsapp_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      webhook_url TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await refreshWhatsAppGroupCache();
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS paper_trade_executions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      execution_key TEXT NOT NULL UNIQUE,
+      symbol TEXT NOT NULL,
+      signal TEXT NOT NULL,
+      side TEXT NOT NULL,
+      status TEXT NOT NULL,
+      order_id TEXT,
+      detail TEXT,
+      observed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await dbRun("CREATE INDEX IF NOT EXISTS idx_paper_trade_created ON paper_trade_executions(created_at)");
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await loadWatchlistSelection();
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  const userColumnMigrations = [
+    "ALTER TABLE users ADD COLUMN email TEXT",
+    "ALTER TABLE users ADD COLUMN phone_number TEXT",
+    "ALTER TABLE users ADD COLUMN full_name TEXT",
+    "ALTER TABLE users ADD COLUMN date_of_birth TEXT",
+    "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+    "ALTER TABLE users ADD COLUMN email_verified_at TEXT",
+    "ALTER TABLE users ADD COLUMN phone_verified_at TEXT",
+    "ALTER TABLE users ADD COLUMN email_otp_hash TEXT",
+    "ALTER TABLE users ADD COLUMN email_otp_expires_at TEXT",
+    "ALTER TABLE users ADD COLUMN email_otp_sent_at TEXT",
+    "ALTER TABLE users ADD COLUMN updated_at TEXT"
+  ];
+  for (const migration of userColumnMigrations) {
+    await dbRun(migration).catch((error) => {
+      if (!/duplicate column/i.test(error.message)) {
+        console.error(`User table migration failed ("${migration}"): ${error.message}`);
       }
     });
-    db.run("CREATE INDEX IF NOT EXISTS idx_market_snapshots_symbol_observed ON market_snapshots(symbol, observed_at)");
-    db.run(`
-      CREATE TABLE IF NOT EXISTS whatsapp_groups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        webhook_url TEXT NOT NULL,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `, () => {
-      refreshWhatsAppGroupCache();
-    });
-    db.run(`
-      CREATE TABLE IF NOT EXISTS paper_trade_executions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        execution_key TEXT NOT NULL UNIQUE,
-        symbol TEXT NOT NULL,
-        signal TEXT NOT NULL,
-        side TEXT NOT NULL,
-        status TEXT NOT NULL,
-        order_id TEXT,
-        detail TEXT,
-        observed_at TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    db.run("CREATE INDEX IF NOT EXISTS idx_paper_trade_created ON paper_trade_executions(created_at)");
-    db.run(`
-      CREATE TABLE IF NOT EXISTS app_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `, () => {
-      loadWatchlistSelection();
-    });
-    db.run(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user',
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `, () => {
-      ensureDefaultAdmin().catch((error) => {
-        console.error(`Failed to bootstrap default admin: ${error.message}`);
-      });
-    });
-  });
+  }
+  await dbRun("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL");
+  await dbRun("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_number ON users(phone_number) WHERE phone_number IS NOT NULL");
+  await ensureDefaultAdmin();
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS user_watchlist_symbols (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      symbol TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, symbol)
+    )
+  `);
+  await migrateGlobalWishlistToAdmin();
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS wishlists (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS wishlist_symbols (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wishlist_id INTEGER NOT NULL REFERENCES wishlists(id) ON DELETE CASCADE,
+      symbol TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(wishlist_id, symbol)
+    )
+  `);
+  await migrateSingleWishlistsToNamedLists();
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS portfolio_holdings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      symbol TEXT NOT NULL,
+      quantity REAL NOT NULL,
+      avg_cost REAL NOT NULL,
+      purchase_date TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, symbol)
+    )
+  `);
 }
 
 function normalizeSymbols(input) {
@@ -343,6 +451,8 @@ async function getScreenerData(params) {
     row.trailingPE = extra ? extra.trailingPE : null;
     row.dividendYield = extra ? extra.dividendYield : null;
     row.exchange = extra ? extra.exchange : null;
+    row.fiftyTwoWeekHigh = extra ? extra.fiftyTwoWeekHigh : null;
+    row.fiftyTwoWeekLow = extra ? extra.fiftyTwoWeekLow : null;
 
     const profile = profiles[row.symbol];
     row.sector = profile ? profile.sector : null;
@@ -479,6 +589,79 @@ async function ensureDefaultAdmin() {
   }
 }
 
+let mailTransport = null;
+
+function mailerConfigured() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
+function getMailTransport() {
+  if (!mailerConfigured()) return null;
+  if (!mailTransport) {
+    mailTransport = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: Number(process.env.SMTP_PORT) === 465,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    });
+  }
+  return mailTransport;
+}
+
+async function sendEmail(to, subject, text) {
+  const transport = getMailTransport();
+  if (!transport) throw new Error("Email is not configured on this server (missing SMTP_HOST/SMTP_USER/SMTP_PASS)");
+  await transport.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    text
+  });
+}
+
+function generateOtpCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ""));
+}
+
+function calculateAge(dateOfBirth) {
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const monthDiff = now.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < dob.getDate())) age -= 1;
+  return age;
+}
+
+async function deriveUniqueUsername(email) {
+  const base = String(email).split("@")[0].toLowerCase().replace(/[^a-z0-9._-]/g, "") || "user";
+  let candidate = base;
+  let suffix = 1;
+  while (await dbGet("SELECT id FROM users WHERE username = ?", [candidate])) {
+    suffix += 1;
+    candidate = `${base}${suffix}`;
+  }
+  return candidate;
+}
+
+async function sendVerificationOtp(userId, email) {
+  const code = generateOtpCode();
+  const now = Date.now();
+  await dbRun(
+    "UPDATE users SET email_otp_hash = ?, email_otp_expires_at = ?, email_otp_sent_at = ? WHERE id = ?",
+    [hashPassword(code), new Date(now + EMAIL_OTP_TTL_MS).toISOString(), new Date(now).toISOString(), userId]
+  );
+  await sendEmail(
+    email,
+    "Your Market Dashboard verification code",
+    `Your verification code is ${code}. It expires in 10 minutes.`
+  );
+}
+
 function parseCookies(req) {
   const header = req.headers.cookie;
   const cookies = {};
@@ -498,6 +681,7 @@ function createSession(user) {
   sessions.set(token, {
     userId: user.id,
     username: user.username,
+    email: user.email || null,
     role: user.role,
     expiresAt: Date.now() + SESSION_TTL_MS
   });
@@ -521,6 +705,22 @@ function destroySession(req) {
   const cookies = parseCookies(req);
   const token = cookies[SESSION_COOKIE_NAME];
   if (token) sessions.delete(token);
+}
+
+// Sessions cache role/status at login time. When an admin changes a user's role
+// or deactivates them, any of that user's already-open sessions need to be
+// updated (role change) or dropped (no longer active) immediately - otherwise
+// a promoted admin can't see admin pages, and a suspended user keeps full
+// access, until they happen to log out and back in.
+function syncSessionsForUser(userId, { role, active }) {
+  for (const [token, session] of sessions.entries()) {
+    if (session.userId !== userId) continue;
+    if (active === false) {
+      sessions.delete(token);
+    } else if (role) {
+      session.role = role;
+    }
+  }
 }
 
 function setSessionCookie(res, token) {
@@ -591,6 +791,198 @@ async function addManualWatchlistSymbols(input) {
     await saveAppSetting("watchlist_symbols", [...selectedWatchSymbols]);
   }
   return syncTrackedSymbols();
+}
+
+async function removeManualWatchlistSymbols(input) {
+  const removals = new Set(normalizeSymbols(input));
+  if (!removals.size) throw new Error("Enter at least one valid ticker symbol");
+  manualSymbols = manualSymbols.filter((symbol) => !removals.has(symbol));
+  await saveAppSetting("manual_watchlist_symbols", manualSymbols);
+
+  if (selectedWatchSymbols !== null) {
+    removals.forEach((symbol) => selectedWatchSymbols.delete(symbol));
+    await saveAppSetting("watchlist_symbols", [...selectedWatchSymbols]);
+  }
+  return syncTrackedSymbols();
+}
+
+const MAX_WISHLISTS_PER_USER = 20;
+
+async function getUserWishlists(userId) {
+  return dbAll(`
+    SELECT w.id, w.name, w.created_at AS createdAt, COUNT(ws.id) AS symbolCount
+    FROM wishlists w
+    LEFT JOIN wishlist_symbols ws ON ws.wishlist_id = w.id
+    WHERE w.user_id = ?
+    GROUP BY w.id
+    ORDER BY w.id ASC
+  `, [userId]);
+}
+
+async function getOrCreateDefaultWishlist(userId) {
+  const existing = await dbGet("SELECT id FROM wishlists WHERE user_id = ? ORDER BY id ASC LIMIT 1", [userId]);
+  if (existing) return existing.id;
+  const created = await dbRun("INSERT INTO wishlists (user_id, name) VALUES (?, 'My Watchlist')", [userId]);
+  return created.id;
+}
+
+async function resolveWishlistId(userId, wishlistId) {
+  if (!wishlistId) return getOrCreateDefaultWishlist(userId);
+  const owned = await dbGet("SELECT id FROM wishlists WHERE id = ? AND user_id = ?", [wishlistId, userId]);
+  if (!owned) throw new Error("Wishlist not found");
+  return owned.id;
+}
+
+async function createWishlist(userId, name) {
+  const trimmedName = String(name || "").trim();
+  if (!trimmedName) throw new Error("Enter a wishlist name");
+  const countRow = await dbGet("SELECT COUNT(*) AS count FROM wishlists WHERE user_id = ?", [userId]);
+  if (countRow && countRow.count >= MAX_WISHLISTS_PER_USER) throw new Error(`You can have at most ${MAX_WISHLISTS_PER_USER} wishlists`);
+  await dbRun("INSERT INTO wishlists (user_id, name) VALUES (?, ?)", [userId, trimmedName]);
+  return getUserWishlists(userId);
+}
+
+async function renameWishlist(userId, wishlistId, name) {
+  const trimmedName = String(name || "").trim();
+  if (!trimmedName) throw new Error("Enter a wishlist name");
+  const owned = await dbGet("SELECT id FROM wishlists WHERE id = ? AND user_id = ?", [wishlistId, userId]);
+  if (!owned) throw new Error("Wishlist not found");
+  await dbRun("UPDATE wishlists SET name = ? WHERE id = ?", [trimmedName, wishlistId]);
+  return getUserWishlists(userId);
+}
+
+async function deleteWishlist(userId, wishlistId) {
+  const owned = await dbGet("SELECT id FROM wishlists WHERE id = ? AND user_id = ?", [wishlistId, userId]);
+  if (!owned) throw new Error("Wishlist not found");
+  await dbRun("DELETE FROM wishlists WHERE id = ?", [wishlistId]);
+  return getUserWishlists(userId);
+}
+
+async function getWishlistSymbols(wishlistId) {
+  const rows = await dbAll("SELECT symbol FROM wishlist_symbols WHERE wishlist_id = ? ORDER BY symbol", [wishlistId]);
+  return rows.map((row) => row.symbol);
+}
+
+async function addWishlistSymbols(userId, wishlistId, input) {
+  const additions = normalizeSymbols(input);
+  if (!additions.length) throw new Error("Enter at least one valid ticker symbol");
+  const resolvedId = await resolveWishlistId(userId, wishlistId);
+  for (const symbol of additions) {
+    await dbRun("INSERT OR IGNORE INTO wishlist_symbols (wishlist_id, symbol) VALUES (?, ?)", [resolvedId, symbol]);
+  }
+  return { wishlistId: resolvedId, symbols: await getWishlistSymbols(resolvedId) };
+}
+
+async function removeWishlistSymbols(userId, wishlistId, input) {
+  const removals = normalizeSymbols(input);
+  if (!removals.length) throw new Error("Enter at least one valid ticker symbol");
+  const resolvedId = await resolveWishlistId(userId, wishlistId);
+  for (const symbol of removals) {
+    await dbRun("DELETE FROM wishlist_symbols WHERE wishlist_id = ? AND symbol = ?", [resolvedId, symbol]);
+  }
+  return { wishlistId: resolvedId, symbols: await getWishlistSymbols(resolvedId) };
+}
+
+async function getPortfolioHoldings(userId) {
+  return dbAll(
+    "SELECT symbol, quantity, avg_cost AS avgCost, purchase_date AS purchaseDate, created_at AS createdAt, updated_at AS updatedAt FROM portfolio_holdings WHERE user_id = ? ORDER BY symbol",
+    [userId]
+  );
+}
+
+async function addPortfolioHolding(userId, symbol, quantity, avgCost, purchaseDate) {
+  const normalizedSymbols = normalizeSymbols(symbol);
+  if (!normalizedSymbols.length) throw new Error("Enter a valid ticker symbol");
+  const normalizedSymbol = normalizedSymbols[0];
+  const qty = Number(quantity);
+  const cost = Number(avgCost);
+  if (!Number.isFinite(qty) || qty <= 0) throw new Error("Quantity must be a positive number");
+  if (!Number.isFinite(cost) || cost <= 0) throw new Error("Average cost must be a positive number");
+
+  const existing = await dbGet("SELECT quantity, avg_cost AS avgCost FROM portfolio_holdings WHERE user_id = ? AND symbol = ?", [userId, normalizedSymbol]);
+  const now = new Date().toISOString();
+  if (existing) {
+    const newQuantity = existing.quantity + qty;
+    const newAvgCost = (existing.quantity * existing.avgCost + qty * cost) / newQuantity;
+    await dbRun(
+      "UPDATE portfolio_holdings SET quantity = ?, avg_cost = ?, updated_at = ? WHERE user_id = ? AND symbol = ?",
+      [newQuantity, newAvgCost, now, userId, normalizedSymbol]
+    );
+  } else {
+    await dbRun(
+      "INSERT INTO portfolio_holdings (user_id, symbol, quantity, avg_cost, purchase_date, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [userId, normalizedSymbol, qty, cost, purchaseDate || null, now]
+    );
+  }
+  return getPortfolioHoldings(userId);
+}
+
+async function setPortfolioHolding(userId, symbol, quantity, avgCost, purchaseDate) {
+  const normalizedSymbols = normalizeSymbols(symbol);
+  if (!normalizedSymbols.length) throw new Error("Enter a valid ticker symbol");
+  const normalizedSymbol = normalizedSymbols[0];
+  const qty = Number(quantity);
+  const cost = Number(avgCost);
+  if (!Number.isFinite(qty) || qty <= 0) throw new Error("Quantity must be a positive number");
+  if (!Number.isFinite(cost) || cost <= 0) throw new Error("Average cost must be a positive number");
+
+  await dbRun(
+    `INSERT INTO portfolio_holdings (user_id, symbol, quantity, avg_cost, purchase_date, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, symbol) DO UPDATE SET quantity = excluded.quantity, avg_cost = excluded.avg_cost,
+       purchase_date = excluded.purchase_date, updated_at = excluded.updated_at`,
+    [userId, normalizedSymbol, qty, cost, purchaseDate || null, new Date().toISOString()]
+  );
+  return getPortfolioHoldings(userId);
+}
+
+async function deletePortfolioHolding(userId, symbol) {
+  const normalizedSymbols = normalizeSymbols(symbol);
+  if (!normalizedSymbols.length) throw new Error("Enter a valid ticker symbol");
+  await dbRun("DELETE FROM portfolio_holdings WHERE user_id = ? AND symbol = ?", [userId, normalizedSymbols[0]]);
+  return getPortfolioHoldings(userId);
+}
+
+async function getPortfolioWithPnl(userId) {
+  const holdings = await getPortfolioHoldings(userId);
+  if (!holdings.length) {
+    return { holdings: [], totals: { costBasis: 0, marketValue: 0, unrealizedPnl: 0, unrealizedPnlPercent: 0 } };
+  }
+  const quotes = await getMarketData(holdings.map((holding) => holding.symbol));
+  const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+
+  let totalCostBasis = 0;
+  let totalMarketValue = 0;
+  const enrichedHoldings = holdings.map((holding) => {
+    const quote = quoteBySymbol.get(holding.symbol);
+    const currentPrice = quote && Number.isFinite(quote.price) ? quote.price : null;
+    const costBasis = holding.quantity * holding.avgCost;
+    const marketValue = currentPrice !== null ? holding.quantity * currentPrice : null;
+    const unrealizedPnl = marketValue !== null ? marketValue - costBasis : null;
+    const unrealizedPnlPercent = marketValue !== null && costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : null;
+    totalCostBasis += costBasis;
+    if (marketValue !== null) totalMarketValue += marketValue;
+    return {
+      ...holding,
+      currentPrice,
+      costBasis,
+      marketValue,
+      unrealizedPnl,
+      unrealizedPnlPercent,
+      todayChangePercent: quote ? quote.todayChangePercent : null
+    };
+  });
+
+  const totalUnrealizedPnl = totalMarketValue - totalCostBasis;
+  return {
+    holdings: enrichedHoldings,
+    totals: {
+      costBasis: totalCostBasis,
+      marketValue: totalMarketValue,
+      unrealizedPnl: totalUnrealizedPnl,
+      unrealizedPnlPercent: totalCostBasis > 0 ? (totalUnrealizedPnl / totalCostBasis) * 100 : 0
+    }
+  };
 }
 
 function watchlistPayload() {
@@ -843,7 +1235,9 @@ async function getBulkQuoteFundamentals(symbols) {
         marketCap: Number.isFinite(quote.marketCap) ? quote.marketCap : null,
         trailingPE: Number.isFinite(quote.trailingPE) ? quote.trailingPE : null,
         dividendYield: Number.isFinite(quote.dividendYield) ? quote.dividendYield : null,
-        exchange: quote.fullExchangeName || quote.exchange || null
+        exchange: quote.fullExchangeName || quote.exchange || null,
+        fiftyTwoWeekHigh: Number.isFinite(quote.fiftyTwoWeekHigh) ? quote.fiftyTwoWeekHigh : null,
+        fiftyTwoWeekLow: Number.isFinite(quote.fiftyTwoWeekLow) ? quote.fiftyTwoWeekLow : null
       };
       quoteFundamentalsCache.set(quote.symbol, { cachedAt: Date.now(), data });
       result[quote.symbol] = data;
@@ -1509,6 +1903,7 @@ function requestBody(url, options, body) {
         path: `${parsed.pathname}${parsed.search}`,
         method: options.method || "POST",
         headers: {
+          "User-Agent": "Mozilla/5.0",
           "Content-Length": Buffer.byteLength(body),
           ...options.headers
         }
@@ -1545,6 +1940,315 @@ function requestJsonPost(url, headers, payload, label) {
       ...headers
     }
   }, JSON.stringify(payload));
+}
+
+const earningsCalendarCache = new Map();
+const EARNINGS_CALENDAR_CACHE_MS = 15 * 60 * 1000;
+
+function addDaysToMarketDate(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return marketDateKey(date);
+}
+
+async function getEarningsCalendar(params) {
+  const daysBack = Math.max(0, Math.min(Number(params.get("daysBack")) || 0, 30));
+  const daysAheadRaw = params.has("days") ? Number(params.get("days")) : (daysBack > 0 ? 0 : 14);
+  const daysAhead = Math.max(0, Math.min(daysAheadRaw || 0, 60));
+  const startDate = daysBack > 0 ? addDaysToMarketDate(-daysBack) : marketDateKey();
+  const endDate = addDaysToMarketDate(Math.max(daysAhead, 1));
+  const query = String(params.get("q") || "").trim().toLowerCase();
+
+  const cacheKey = `${startDate}:${endDate}`;
+  let data = earningsCalendarCache.get(cacheKey);
+  if (!data || Date.now() - data.cachedAt >= EARNINGS_CALENDAR_CACHE_MS) {
+    const fetchCalendar = async (auth) => {
+      const crumbQuery = auth && auth.crumb ? `?crumb=${encodeURIComponent(auth.crumb)}` : "";
+      const url = `https://query1.finance.yahoo.com/v1/finance/visualization${crumbQuery}`;
+      const body = await requestJsonPost(url, auth && auth.cookie ? { Cookie: auth.cookie } : {}, {
+        sortField: "startdatetime",
+        sortType: "ASC",
+        entityIdType: "earnings",
+        includeFields: ["ticker", "companyshortname", "startdatetime", "startdatetimetype", "epsestimate", "epsactual", "epssurprisepct"],
+        query: {
+          operator: "and",
+          operands: [
+            { operator: "gte", operands: ["startdatetime", startDate] },
+            { operator: "lt", operands: ["startdatetime", endDate] },
+            { operator: "eq", operands: ["region", "us"] }
+          ]
+        },
+        offset: 0,
+        size: 250
+      }, "Earnings calendar");
+      const json = JSON.parse(body);
+      if (json.finance && json.finance.error) {
+        throw new Error(json.finance.error.description || "Earnings calendar request failed");
+      }
+      return json;
+    };
+
+    let json;
+    try {
+      json = await fetchCalendar(await getYahooAuth());
+    } catch (error) {
+      json = await fetchCalendar(await getYahooAuth(true));
+    }
+
+    const result = json.finance && Array.isArray(json.finance.result) && json.finance.result[0];
+    const document = result && Array.isArray(result.documents) && result.documents[0];
+    const rows = document && Array.isArray(document.rows) ? document.rows : [];
+
+    const rawEvents = rows
+      .map((row) => ({
+        symbol: row[0],
+        company: row[1],
+        date: row[2],
+        timing: row[3] || null,
+        epsEstimate: Number.isFinite(row[4]) ? row[4] : null,
+        epsActual: Number.isFinite(row[5]) ? row[5] : null,
+        epsSurprisePercent: Number.isFinite(row[6]) ? row[6] : null
+      }))
+      .filter((event) => event.symbol && event.date);
+
+    // Collapse duplicate preferred-share listings (e.g. JPM-PC, JPM-PD) into
+    // a single row per company per day, preferring the common-stock ticker.
+    const dedupedByCompanyDay = new Map();
+    rawEvents.forEach((event) => {
+      const baseSymbol = event.symbol.split("-")[0];
+      const key = `${baseSymbol}|${event.date}`;
+      const existing = dedupedByCompanyDay.get(key);
+      const isCommonStock = !event.symbol.includes("-");
+      if (!existing || (isCommonStock && existing.symbol.includes("-"))) {
+        dedupedByCompanyDay.set(key, { ...event, symbol: isCommonStock ? event.symbol : baseSymbol });
+      }
+    });
+    const events = [...dedupedByCompanyDay.values()].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+
+    data = {
+      cachedAt: Date.now(),
+      startDate,
+      endDate,
+      total: result ? result.total : events.length,
+      events
+    };
+    earningsCalendarCache.set(cacheKey, data);
+  }
+
+  const filteredEvents = query
+    ? data.events.filter((event) => event.symbol.toLowerCase().includes(query) || String(event.company || "").toLowerCase().includes(query))
+    : data.events;
+
+  return {
+    startDate: data.startDate,
+    endDate: data.endDate,
+    total: data.total,
+    count: filteredEvents.length,
+    updatedAt: new Date(data.cachedAt).toISOString(),
+    events: filteredEvents
+  };
+}
+
+const economicCalendarDayCache = new Map();
+const ECONOMIC_CALENDAR_CACHE_MS = 15 * 60 * 1000;
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&nbsp;/gi, "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .trim();
+}
+
+function stripHtmlTags(value) {
+  return decodeHtmlEntities(String(value || "").replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+function addDaysToDateKey(dateKey, days) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+async function fetchEconomicEventsForDate(dateKey) {
+  const cached = economicCalendarDayCache.get(dateKey);
+  if (cached && Date.now() - cached.cachedAt < ECONOMIC_CALENDAR_CACHE_MS) {
+    return cached.rows;
+  }
+
+  const body = await requestJson(`https://api.nasdaq.com/api/calendar/economicevents?date=${dateKey}`, {
+    "User-Agent": "Mozilla/5.0",
+    Accept: "application/json"
+  });
+  const rawRows = (body && body.data && Array.isArray(body.data.rows)) ? body.data.rows : [];
+
+  const rows = rawRows.map((row) => {
+    const actual = decodeHtmlEntities(row.actual);
+    const consensus = decodeHtmlEntities(row.consensus);
+    const previous = decodeHtmlEntities(row.previous);
+    return {
+      date: dateKey,
+      time: row.gmt || null,
+      country: row.country || "Unknown",
+      event: row.eventName || "Untitled event",
+      actual: actual || null,
+      consensus: consensus || null,
+      previous: previous || null,
+      description: stripHtmlTags(row.description)
+    };
+  });
+
+  economicCalendarDayCache.set(dateKey, { cachedAt: Date.now(), rows });
+  return rows;
+}
+
+async function getEconomicCalendar(params) {
+  const daysAhead = Math.max(1, Math.min(Number(params.get("days")) || 7, 14));
+  const country = String(params.get("country") || "United States").trim();
+  const query = String(params.get("q") || "").trim().toLowerCase();
+  const startDate = marketDateKey();
+
+  const dateKeys = [];
+  for (let i = 0; i < daysAhead; i += 1) {
+    dateKeys.push(addDaysToDateKey(startDate, i));
+  }
+  const endDate = dateKeys[dateKeys.length - 1];
+
+  const rowsByDay = await Promise.all(dateKeys.map((dateKey) => fetchEconomicEventsForDate(dateKey)));
+  let events = rowsByDay.flat();
+
+  if (country && country.toLowerCase() !== "all") {
+    events = events.filter((event) => event.country.toLowerCase() === country.toLowerCase());
+  }
+  if (query) {
+    events = events.filter((event) => (
+      event.event.toLowerCase().includes(query) || event.country.toLowerCase().includes(query)
+    ));
+  }
+
+  events.sort((a, b) => `${a.date}T${a.time || "00:00"}`.localeCompare(`${b.date}T${b.time || "00:00"}`));
+
+  return {
+    startDate,
+    endDate,
+    count: events.length,
+    updatedAt: new Date().toISOString(),
+    events
+  };
+}
+
+const AI_PREDICTION_MODEL = "claude-haiku-4-5";
+const aiPredictionCache = new Map();
+const AI_PREDICTION_CACHE_MS = 20 * 60 * 1000;
+let anthropicClient = null;
+
+function aiPredictionConfigured() {
+  return Boolean(process.env.ANTHROPIC_API_KEY);
+}
+
+function getAnthropicClient() {
+  if (!anthropicClient) {
+    anthropicClient = new Anthropic();
+  }
+  return anthropicClient;
+}
+
+async function getAiPrediction(symbol, options = {}) {
+  const normalizedSymbol = normalizeSymbols(symbol)[0];
+  if (!normalizedSymbol) {
+    throw new Error("A valid symbol is required");
+  }
+  if (!aiPredictionConfigured()) {
+    const error = new Error("AI predictions require an ANTHROPIC_API_KEY to be configured on the server");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const cached = aiPredictionCache.get(normalizedSymbol);
+  if (!options.force && cached && Date.now() - cached.cachedAt < AI_PREDICTION_CACHE_MS) {
+    return cached.data;
+  }
+
+  const technicals = await getSymbolData(normalizedSymbol);
+  const relativeVolume = Number.isFinite(technicals.volume) && Number.isFinite(technicals.avgVolume) && technicals.avgVolume > 0
+    ? technicals.volume / technicals.avgVolume
+    : null;
+  const fundamentals = await getBulkQuoteFundamentals([normalizedSymbol]);
+  const companyName = fundamentals[normalizedSymbol] ? fundamentals[normalizedSymbol].name : null;
+
+  const prompt = `Analyze this intraday technical snapshot for ${normalizedSymbol} and give a short-term trading verdict.
+
+Price: $${technicals.price}
+Today's change: ${technicals.todayChangePercent}%
+RSI (14): ${technicals.rsi} (previous reading: ${technicals.previousRsi})
+Rule-based signal state: ${technicals.state}
+Current volume: ${technicals.volume ?? "unknown"}
+Average volume: ${technicals.avgVolume ?? "unknown"}
+Relative volume: ${relativeVolume ? relativeVolume.toFixed(2) : "unknown"}
+Recent 1-minute closing prices, oldest to newest: ${technicals.chart.map((value) => Number(value.toFixed(2))).join(", ")}`;
+
+  const client = getAnthropicClient();
+  const response = await client.messages.create({
+    model: AI_PREDICTION_MODEL,
+    max_tokens: 500,
+    tools: [{
+      name: "provide_prediction",
+      description: "Provide a structured intraday trading verdict for the stock based on the technical data given.",
+      input_schema: {
+        type: "object",
+        properties: {
+          verdict: { type: "string", enum: ["BUY", "SELL", "HOLD"] },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+          reasoning: { type: "string", description: "1-3 sentence rationale referencing the technical data provided" }
+        },
+        required: ["verdict", "confidence", "reasoning"],
+        additionalProperties: false
+      },
+      strict: true
+    }],
+    tool_choice: { type: "tool", name: "provide_prediction" },
+    messages: [{ role: "user", content: prompt }]
+  });
+
+  const toolUse = response.content.find((block) => block.type === "tool_use" && block.name === "provide_prediction");
+  if (!toolUse) {
+    throw new Error("AI prediction did not return a structured verdict");
+  }
+
+  const data = {
+    symbol: normalizedSymbol,
+    companyName,
+    verdict: toolUse.input.verdict,
+    confidence: toolUse.input.confidence,
+    reasoning: toolUse.input.reasoning,
+    basis: {
+      price: technicals.price,
+      todayChangePercent: technicals.todayChangePercent,
+      rsi: technicals.rsi,
+      previousRsi: technicals.previousRsi,
+      state: technicals.state,
+      relativeVolume: relativeVolume ? Number(relativeVolume.toFixed(2)) : null
+    },
+    generatedAt: new Date().toISOString()
+  };
+
+  aiPredictionCache.set(normalizedSymbol, { data, cachedAt: Date.now() });
+  return data;
+}
+
+async function getAiPredictions(symbolsParam, options = {}) {
+  const symbols = normalizeSymbols(symbolsParam).slice(0, 25);
+  if (!symbols.length) {
+    throw new Error("At least one valid symbol is required");
+  }
+  const results = await Promise.allSettled(symbols.map((symbol) => getAiPrediction(symbol, options)));
+  return results.map((result, index) => result.status === "fulfilled"
+    ? result.value
+    : { symbol: symbols[index], error: result.reason.message });
 }
 
 function alpacaConfigured() {
@@ -2041,16 +2745,74 @@ function sendStatic(req, res) {
   });
 }
 
+const PUBLIC_PATHS = new Set([
+  "/login.html",
+  "/register.html",
+  "/api/auth/login",
+  "/api/auth/me",
+  "/api/auth/logout",
+  "/api/auth/guest",
+  "/api/auth/register",
+  "/api/auth/verify-email",
+  "/api/auth/resend-otp"
+]);
+const STATIC_ASSET_PATTERN = /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|map)$/i;
+const ADMIN_ONLY_PAGES = new Set(["/admin.html", "/admin-users.html", "/admin-stocks.html"]);
+
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const isHtmlNavigation = req.method === "GET" && (parsedUrl.pathname === "/" || parsedUrl.pathname.endsWith(".html"));
+
+  if (!PUBLIC_PATHS.has(parsedUrl.pathname) && !STATIC_ASSET_PATTERN.test(parsedUrl.pathname)) {
+    const sessionUser = getSessionUser(req);
+    if (!sessionUser) {
+      if (isHtmlNavigation) {
+        const next = encodeURIComponent(parsedUrl.pathname + parsedUrl.search);
+        res.writeHead(302, { Location: `/login.html?next=${next}` });
+        res.end();
+      } else {
+        sendError(res, 401, "Sign in required");
+      }
+      return;
+    }
+    if (ADMIN_ONLY_PAGES.has(parsedUrl.pathname) && sessionUser.role !== "admin") {
+      res.writeHead(302, { Location: "/index.html" });
+      res.end();
+      return;
+    }
+  }
 
   if (parsedUrl.pathname === "/api/market") {
     (async () => {
       try {
         const sessionUser = getSessionUser(req);
-        const isAdmin = Boolean(sessionUser && sessionUser.role === "admin");
+        if (!sessionUser) {
+          sendError(res, 401, "Sign in required");
+          return;
+        }
+        const isAdmin = sessionUser.role === "admin";
         const viewAll = isAdmin && parsedUrl.searchParams.get("view") === "all";
-        const symbolsForRequest = viewAll ? dailyTopStocks.symbols : trackedSymbols;
+        const symbolsOverride = parsedUrl.searchParams.has("symbols")
+          ? normalizeSymbols(parsedUrl.searchParams.get("symbols"))
+          : null;
+        const requestedWishlistId = Number(parsedUrl.searchParams.get("wishlistId")) || null;
+        // The main dashboard shows the signed-in user's selected wishlist by default
+        // (their first/default one if none is specified); a brand-new user with an
+        // empty wishlist falls back to the shared tracked pool. Admins can still opt
+        // into the full Daily Top 10 pool via ?view=all. An explicit ?symbols= override
+        // (used by guests, whose wishlist lives in browser localStorage rather than the
+        // database) takes precedence over all of that.
+        let activeWishlistId = null;
+        let personalSymbols = [];
+        if (!symbolsOverride && sessionUser.userId) {
+          activeWishlistId = await resolveWishlistId(sessionUser.userId, requestedWishlistId);
+          personalSymbols = await getWishlistSymbols(activeWishlistId);
+        }
+        const symbolsForRequest = symbolsOverride
+          ? symbolsOverride
+          : viewAll
+            ? dailyTopStocks.symbols
+            : (personalSymbols.length ? personalSymbols : trackedSymbols);
 
         const data = await getMarketData(symbolsForRequest);
         const observedAt = new Date().toISOString();
@@ -2065,7 +2827,8 @@ const server = http.createServer((req, res) => {
         }
         sendJson(res, {
           symbols: symbolsForRequest,
-          manualSymbols,
+          personalSymbols,
+          activeWishlistId,
           topStocks: dailyTopStocks,
           updatedAt: observedAt,
           data,
@@ -2080,21 +2843,284 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (parsedUrl.pathname === "/api/watchlist/symbols") {
+    (async () => {
+      try {
+        const sessionUser = getSessionUser(req);
+        if (!sessionUser) {
+          sendError(res, 401, "Sign in required");
+          return;
+        }
+        if (!sessionUser.userId) {
+          sendError(res, 403, "Guests use a browser-local wishlist. Create an account to save one on the server.");
+          return;
+        }
+        if (req.method === "POST") {
+          const payload = await readJsonBody(req);
+          const result = await addWishlistSymbols(sessionUser.userId, payload.wishlistId, payload.symbols);
+          sendJson(res, result);
+          return;
+        }
+        if (req.method === "DELETE") {
+          const payload = await readJsonBody(req);
+          const result = await removeWishlistSymbols(sessionUser.userId, payload.wishlistId, payload.symbols);
+          sendJson(res, result);
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/wishlists") {
+    (async () => {
+      try {
+        const sessionUser = getSessionUser(req);
+        if (!sessionUser) {
+          sendError(res, 401, "Sign in required");
+          return;
+        }
+        if (!sessionUser.userId) {
+          sendError(res, 403, "Guests use a browser-local wishlist and can't create additional lists.");
+          return;
+        }
+        if (req.method === "GET") {
+          const wishlists = await getUserWishlists(sessionUser.userId);
+          sendJson(res, { wishlists });
+          return;
+        }
+        if (req.method === "POST") {
+          const payload = await readJsonBody(req);
+          const wishlists = await createWishlist(sessionUser.userId, payload.name);
+          sendJson(res, { wishlists });
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname.startsWith("/api/wishlists/")) {
+    (async () => {
+      try {
+        const sessionUser = getSessionUser(req);
+        if (!sessionUser) {
+          sendError(res, 401, "Sign in required");
+          return;
+        }
+        if (!sessionUser.userId) {
+          sendError(res, 403, "Guests use a browser-local wishlist and can't manage additional lists.");
+          return;
+        }
+        const wishlistId = Number(parsedUrl.pathname.split("/").pop());
+        if (req.method === "PUT") {
+          const payload = await readJsonBody(req);
+          const wishlists = await renameWishlist(sessionUser.userId, wishlistId, payload.name);
+          sendJson(res, { wishlists });
+          return;
+        }
+        if (req.method === "DELETE") {
+          const wishlists = await deleteWishlist(sessionUser.userId, wishlistId);
+          sendJson(res, { wishlists });
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/portfolio") {
+    (async () => {
+      try {
+        const sessionUser = getSessionUser(req);
+        if (!sessionUser) {
+          sendError(res, 401, "Sign in required");
+          return;
+        }
+        if (!sessionUser.userId) {
+          sendError(res, 403, "Guests can't track a portfolio. Create an account to save one.");
+          return;
+        }
+        if (req.method === "GET") {
+          sendJson(res, await getPortfolioWithPnl(sessionUser.userId));
+          return;
+        }
+        if (req.method === "POST") {
+          const body = await readJsonBody(req);
+          await addPortfolioHolding(sessionUser.userId, body.symbol, body.quantity, body.avg_cost, body.purchase_date);
+          sendJson(res, await getPortfolioWithPnl(sessionUser.userId));
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname.startsWith("/api/portfolio/")) {
+    (async () => {
+      try {
+        const sessionUser = getSessionUser(req);
+        if (!sessionUser) {
+          sendError(res, 401, "Sign in required");
+          return;
+        }
+        if (!sessionUser.userId) {
+          sendError(res, 403, "Guests can't track a portfolio. Create an account to save one.");
+          return;
+        }
+        const symbol = decodeURIComponent(parsedUrl.pathname.split("/").pop());
+        if (req.method === "PUT") {
+          const body = await readJsonBody(req);
+          await setPortfolioHolding(sessionUser.userId, symbol, body.quantity, body.avg_cost, body.purchase_date);
+          sendJson(res, await getPortfolioWithPnl(sessionUser.userId));
+          return;
+        }
+        if (req.method === "DELETE") {
+          await deletePortfolioHolding(sessionUser.userId, symbol);
+          sendJson(res, await getPortfolioWithPnl(sessionUser.userId));
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
   if (parsedUrl.pathname === "/api/auth/login" && req.method === "POST") {
     (async () => {
       try {
         const body = await readJsonBody(req);
-        const username = String(body.username || "").trim();
+        const identifier = String(body.email || body.username || "").trim();
         const password = String(body.password || "");
-        if (!username || !password) throw new Error("Username and password are required");
-        const user = await dbGet("SELECT id, username, password_hash, role FROM users WHERE username = ?", [username]);
+        if (!identifier || !password) throw new Error("Email and password are required");
+        const user = await dbGet(
+          "SELECT id, username, email, password_hash, role, status FROM users WHERE email = ? OR username = ?",
+          [identifier, identifier]
+        );
         if (!user || !verifyPassword(password, user.password_hash)) {
-          sendError(res, 401, "Invalid username or password");
+          sendError(res, 401, "Invalid email or password");
+          return;
+        }
+        if (user.status === "pending") {
+          sendError(res, 403, "Your account is awaiting admin approval.");
+          return;
+        }
+        if (user.status !== "active") {
+          sendError(res, 403, `Your account is ${user.status}. Contact an admin for access.`);
           return;
         }
         const token = createSession(user);
         setSessionCookie(res, token);
-        sendJson(res, { username: user.username, role: user.role });
+        sendJson(res, { username: user.username, email: user.email, role: user.role });
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/auth/guest" && req.method === "POST") {
+    const token = createSession({ id: null, username: "Guest", role: "guest" });
+    setSessionCookie(res, token);
+    sendJson(res, { username: "Guest", role: "guest" });
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/auth/register" && req.method === "POST") {
+    (async () => {
+      try {
+        const body = await readJsonBody(req);
+        const email = String(body.email || "").trim().toLowerCase();
+        const password = String(body.password || "");
+        const fullName = String(body.full_name || "").trim();
+        const phoneNumber = String(body.phone_number || "").trim();
+        const dateOfBirth = String(body.date_of_birth || "").trim();
+
+        if (!isValidEmail(email)) throw new Error("Enter a valid email address");
+        if (password.length < 6) throw new Error("Password must be at least 6 characters");
+        if (!fullName) throw new Error("Full name is required");
+        const age = calculateAge(dateOfBirth);
+        if (age === null) throw new Error("Enter a valid date of birth");
+        if (age < MIN_REGISTRATION_AGE) throw new Error(`You must be at least ${MIN_REGISTRATION_AGE} to register`);
+        if (!mailerConfigured()) throw new Error("Email verification is not configured on this server yet. Ask an admin to set SMTP_HOST/SMTP_USER/SMTP_PASS.");
+
+        const existing = await dbGet("SELECT id FROM users WHERE email = ?", [email]);
+        if (existing) throw new Error("An account with that email already exists");
+
+        const username = await deriveUniqueUsername(email);
+        const insertResult = await dbRun(
+          `INSERT INTO users (username, email, phone_number, password_hash, full_name, date_of_birth, role, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'user', 'pending')`,
+          [username, email, phoneNumber || null, hashPassword(password), fullName, dateOfBirth]
+        );
+        await sendVerificationOtp(insertResult.id, email);
+        sendJson(res, { email, message: "Account created. Check your email for a verification code." });
+      } catch (error) {
+        const message = /UNIQUE constraint failed/.test(error.message) ? "An account with that email or phone already exists" : error.message;
+        sendError(res, 400, message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/auth/verify-email" && req.method === "POST") {
+    (async () => {
+      try {
+        const body = await readJsonBody(req);
+        const email = String(body.email || "").trim().toLowerCase();
+        const code = String(body.code || "").trim();
+        if (!email || !code) throw new Error("Email and code are required");
+
+        const user = await dbGet(
+          "SELECT id, email_otp_hash, email_otp_expires_at FROM users WHERE email = ?",
+          [email]
+        );
+        if (!user || !user.email_otp_hash) throw new Error("No pending verification for this email");
+        if (!user.email_otp_expires_at || new Date(user.email_otp_expires_at).getTime() < Date.now()) {
+          throw new Error("That code has expired. Request a new one.");
+        }
+        if (!verifyPassword(code, user.email_otp_hash)) throw new Error("Incorrect verification code");
+
+        await dbRun(
+          "UPDATE users SET email_verified_at = ?, email_otp_hash = NULL, email_otp_expires_at = NULL WHERE id = ?",
+          [new Date().toISOString(), user.id]
+        );
+        sendJson(res, { verified: true, message: "Email verified. Your account is awaiting admin approval." });
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/auth/resend-otp" && req.method === "POST") {
+    (async () => {
+      try {
+        const body = await readJsonBody(req);
+        const email = String(body.email || "").trim().toLowerCase();
+        if (!email) throw new Error("Email is required");
+        const user = await dbGet("SELECT id, email_otp_sent_at, email_verified_at FROM users WHERE email = ?", [email]);
+        if (!user) throw new Error("No account found for that email");
+        if (user.email_verified_at) throw new Error("This email is already verified");
+        if (user.email_otp_sent_at && Date.now() - new Date(user.email_otp_sent_at).getTime() < EMAIL_OTP_RESEND_COOLDOWN_MS) {
+          throw new Error("Please wait a bit before requesting another code");
+        }
+        await sendVerificationOtp(user.id, email);
+        sendJson(res, { message: "A new code has been sent." });
       } catch (error) {
         sendError(res, 400, error.message);
       }
@@ -2111,7 +3137,9 @@ const server = http.createServer((req, res) => {
 
   if (parsedUrl.pathname === "/api/auth/me") {
     const sessionUser = getSessionUser(req);
-    sendJson(res, sessionUser ? { username: sessionUser.username, role: sessionUser.role } : { username: null, role: null });
+    sendJson(res, sessionUser
+      ? { username: sessionUser.username, email: sessionUser.email || null, role: sessionUser.role }
+      : { username: null, role: null });
     return;
   }
 
@@ -2123,25 +3151,35 @@ const server = http.createServer((req, res) => {
     (async () => {
       try {
         if (req.method === "GET") {
-          const users = await dbAll("SELECT id, username, role, created_at AS createdAt FROM users ORDER BY username");
+          const users = await dbAll(`SELECT ${USER_LIST_COLUMNS} FROM users ORDER BY username`);
           sendJson(res, { users });
           return;
         }
         if (req.method === "POST") {
           const body = await readJsonBody(req);
           const username = String(body.username || "").trim();
+          const email = String(body.email || "").trim().toLowerCase();
           const password = String(body.password || "");
           const role = body.role === "admin" ? "admin" : "user";
+          const fullName = String(body.full_name || "").trim();
+          const phoneNumber = String(body.phone_number || "").trim();
+          const dateOfBirth = String(body.date_of_birth || "").trim();
           if (username.length < 3) throw new Error("Username must be at least 3 characters");
+          if (!isValidEmail(email)) throw new Error("Enter a valid email address");
           if (password.length < 6) throw new Error("Password must be at least 6 characters");
-          await dbRun("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", [username, hashPassword(password), role]);
-          const users = await dbAll("SELECT id, username, role, created_at AS createdAt FROM users ORDER BY username");
+          // Admin-created accounts are approved by construction - no OTP/pending step.
+          await dbRun(
+            `INSERT INTO users (username, email, phone_number, password_hash, full_name, date_of_birth, role, status, email_verified_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+            [username, email, phoneNumber || null, hashPassword(password), fullName || null, dateOfBirth || null, role, new Date().toISOString()]
+          );
+          const users = await dbAll(`SELECT ${USER_LIST_COLUMNS} FROM users ORDER BY username`);
           sendJson(res, { users });
           return;
         }
         sendError(res, 405, "Method not allowed");
       } catch (error) {
-        const message = /UNIQUE constraint failed/.test(error.message) ? "That username is already taken" : error.message;
+        const message = /UNIQUE constraint failed/.test(error.message) ? "That username or email is already taken" : error.message;
         sendError(res, 400, message);
       }
     })();
@@ -2155,22 +3193,81 @@ const server = http.createServer((req, res) => {
     }
     (async () => {
       try {
+        const id = Number(parsedUrl.pathname.split("/").pop());
+        const target = await dbGet("SELECT id, role FROM users WHERE id = ?", [id]);
+        if (!target) throw new Error("User not found");
+
+        if (req.method === "PUT") {
+          const body = await readJsonBody(req);
+          if (body.role !== undefined) {
+            const nextRole = body.role === "admin" ? "admin" : "user";
+            if (target.role === "admin" && nextRole !== "admin") {
+              const adminCountRow = await dbGet("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'");
+              if (adminCountRow && adminCountRow.count <= 1) throw new Error("Cannot demote the last admin");
+            }
+            await dbRun("UPDATE users SET role = ? WHERE id = ?", [nextRole, id]);
+            syncSessionsForUser(id, { role: nextRole });
+          }
+          if (body.status !== undefined) {
+            const validStatuses = new Set(["pending", "active", "suspended", "closed"]);
+            const nextStatus = validStatuses.has(body.status) ? body.status : "active";
+            if (target.role === "admin" && nextStatus !== "active") {
+              const activeAdminCountRow = await dbGet("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND status = 'active'");
+              if (activeAdminCountRow && activeAdminCountRow.count <= 1) throw new Error("Cannot deactivate the last active admin");
+            }
+            await dbRun("UPDATE users SET status = ? WHERE id = ?", [nextStatus, id]);
+            if (nextStatus !== "active") syncSessionsForUser(id, { active: false });
+          }
+          if (body.email_verified !== undefined) {
+            await dbRun("UPDATE users SET email_verified_at = ? WHERE id = ?", [body.email_verified ? new Date().toISOString() : null, id]);
+          }
+          if (body.phone_verified !== undefined) {
+            await dbRun("UPDATE users SET phone_verified_at = ? WHERE id = ?", [body.phone_verified ? new Date().toISOString() : null, id]);
+          }
+          if (body.username !== undefined) {
+            const nextUsername = String(body.username).trim();
+            if (nextUsername.length < 3) throw new Error("Username must be at least 3 characters");
+            await dbRun("UPDATE users SET username = ? WHERE id = ?", [nextUsername, id]);
+          }
+          if (body.email !== undefined) {
+            const nextEmail = String(body.email).trim().toLowerCase();
+            if (nextEmail && !isValidEmail(nextEmail)) throw new Error("Enter a valid email address");
+            await dbRun("UPDATE users SET email = ? WHERE id = ?", [nextEmail || null, id]);
+          }
+          if (body.full_name !== undefined) {
+            await dbRun("UPDATE users SET full_name = ? WHERE id = ?", [String(body.full_name).trim() || null, id]);
+          }
+          if (body.phone_number !== undefined) {
+            await dbRun("UPDATE users SET phone_number = ? WHERE id = ?", [String(body.phone_number).trim() || null, id]);
+          }
+          if (body.date_of_birth !== undefined) {
+            await dbRun("UPDATE users SET date_of_birth = ? WHERE id = ?", [String(body.date_of_birth).trim() || null, id]);
+          }
+          if (body.password) {
+            const nextPassword = String(body.password);
+            if (nextPassword.length < 6) throw new Error("Password must be at least 6 characters");
+            await dbRun("UPDATE users SET password_hash = ? WHERE id = ?", [hashPassword(nextPassword), id]);
+          }
+          const users = await dbAll(`SELECT ${USER_LIST_COLUMNS} FROM users ORDER BY username`);
+          sendJson(res, { users });
+          return;
+        }
+
         if (req.method !== "DELETE") {
           sendError(res, 405, "Method not allowed");
           return;
         }
-        const id = Number(parsedUrl.pathname.split("/").pop());
-        const target = await dbGet("SELECT id, role FROM users WHERE id = ?", [id]);
-        if (!target) throw new Error("User not found");
         if (target.role === "admin") {
           const adminCountRow = await dbGet("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'");
           if (adminCountRow && adminCountRow.count <= 1) throw new Error("Cannot remove the last admin");
         }
         await dbRun("DELETE FROM users WHERE id = ?", [id]);
-        const users = await dbAll("SELECT id, username, role, created_at AS createdAt FROM users ORDER BY username");
+        syncSessionsForUser(id, { active: false });
+        const users = await dbAll(`SELECT ${USER_LIST_COLUMNS} FROM users ORDER BY username`);
         sendJson(res, { users });
       } catch (error) {
-        sendError(res, 400, error.message);
+        const message = /UNIQUE constraint failed/.test(error.message) ? "That username or email is already taken" : error.message;
+        sendError(res, 400, message);
       }
     })();
     return;
@@ -2207,6 +3304,45 @@ const server = http.createServer((req, res) => {
         sendJson(res, await getScreenerData(parsedUrl.searchParams));
       } catch (error) {
         sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/earnings-calendar") {
+    (async () => {
+      try {
+        sendJson(res, await getEarningsCalendar(parsedUrl.searchParams));
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/economic-calendar") {
+    (async () => {
+      try {
+        sendJson(res, await getEconomicCalendar(parsedUrl.searchParams));
+      } catch (error) {
+        sendError(res, 400, error.message);
+      }
+    })();
+    return;
+  }
+
+  if (parsedUrl.pathname === "/api/ai-prediction") {
+    (async () => {
+      try {
+        const force = parsedUrl.searchParams.get("refresh") === "1";
+        const symbolsParam = parsedUrl.searchParams.get("symbols");
+        if (symbolsParam) {
+          sendJson(res, { predictions: await getAiPredictions(symbolsParam, { force }) });
+        } else {
+          sendJson(res, await getAiPrediction(parsedUrl.searchParams.get("symbol"), { force }));
+        }
+      } catch (error) {
+        sendError(res, error.statusCode || 400, error.message);
       }
     })();
     return;
@@ -2266,13 +3402,19 @@ const server = http.createServer((req, res) => {
     }
     (async () => {
       try {
-        if (req.method !== "POST") {
-          sendError(res, 405, "Method not allowed");
+        if (req.method === "POST") {
+          const payload = await readJsonBody(req);
+          await addManualWatchlistSymbols(payload.symbols);
+          sendJson(res, watchlistPayload());
           return;
         }
-        const payload = await readJsonBody(req);
-        await addManualWatchlistSymbols(payload.symbols);
-        sendJson(res, watchlistPayload());
+        if (req.method === "DELETE") {
+          const payload = await readJsonBody(req);
+          await removeManualWatchlistSymbols(payload.symbols);
+          sendJson(res, watchlistPayload());
+          return;
+        }
+        sendError(res, 405, "Method not allowed");
       } catch (error) {
         sendError(res, 400, error.message);
       }
@@ -2436,8 +3578,11 @@ const server = http.createServer((req, res) => {
   sendStatic(req, res);
 });
 
-initDatabase();
-syncTrackedSymbols();
+initDatabase()
+  .then(() => syncTrackedSymbols())
+  .catch((error) => {
+    console.error(`Failed to initialize database: ${error.message}`);
+  });
 
 server.listen(PORT, () => {
   console.log(`Market Dashboard running at http://localhost:${PORT}`);

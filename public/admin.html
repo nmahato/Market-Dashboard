@@ -14,35 +14,19 @@
         <header class="page-header">
           <div>
             <h1>Admin</h1>
-            <p>Manage crossover notification channels.</p>
+            <p>Operations: notifications, WhatsApp alerts, and paper trading.</p>
           </div>
         </header>
 
         <div class="page-content">
-          <section class="admin-panel">
-            <p id="adminStatus" class="helper-text">Loading notification settings.</p>
-          </section>
+          <nav class="admin-tabs" aria-label="Admin sections">
+            <a href="/admin.html" aria-current="page">Operations</a>
+            <a href="/admin-users.html">Users &amp; Roles</a>
+            <a href="/admin-stocks.html">Stocks</a>
+          </nav>
 
           <section class="admin-panel">
-            <div class="admin-heading">
-              <h2>Users</h2>
-              <span id="userCount">0 users</span>
-            </div>
-            <form id="addUserForm" class="admin-form">
-              <label for="newUsername">Username</label>
-              <input id="newUsername" name="username" type="text" autocomplete="off" minlength="3" required>
-              <label for="newPassword">Password</label>
-              <input id="newPassword" name="password" type="password" autocomplete="new-password" minlength="6" required>
-              <label for="newRole">Role</label>
-              <select id="newRole" name="role">
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button type="submit">Add User</button>
-            </form>
-            <div id="usersList" class="admin-list">
-              <p class="loading">Sign in as an admin to manage users.</p>
-            </div>
+            <p id="adminStatus" class="helper-text">Loading notification settings.</p>
           </section>
 
           <section class="admin-panel">
@@ -54,29 +38,6 @@
               <button type="submit">Add Group</button>
             </form>
             <p class="helper-text">Use the HTTPS webhook from your WhatsApp group bot or provider.</p>
-          </section>
-
-          <section class="admin-panel">
-            <div class="admin-heading">
-              <h2>Daily Stocks</h2>
-              <span id="dailyStockState">--</span>
-            </div>
-            <form id="manualSymbolForm" class="admin-form manual-symbol-form">
-              <label for="manualSymbolInput">Add ticker manually</label>
-              <div class="stock-search">
-                <input id="manualSymbolInput" name="symbols" type="text" placeholder="Company name or symbol" autocomplete="off">
-                <div id="manualSymbolSuggestions" class="stock-suggestions" hidden></div>
-              </div>
-              <button type="submit">Add to List</button>
-            </form>
-            <div id="dailyStocks" class="admin-list">
-              <p class="loading">Loading daily stocks...</p>
-            </div>
-            <div class="admin-actions">
-              <button id="refreshDailyStocks" type="button" class="secondary-btn">Refresh Daily Stocks</button>
-              <button id="saveWatchlist" type="button">Save Watchlist</button>
-            </div>
-            <p class="helper-text">Check automatic or manually added stocks you want displayed on the RSI Watch dashboard.</p>
           </section>
 
           <section class="admin-panel">
@@ -130,7 +91,6 @@
     <script src="/theme.js"></script>
     <script src="/auth.js"></script>
     <script src="/ticker.js"></script>
-    <script src="/stock-search.js"></script>
     <script src="/admin.js"></script>
   </body>
 </html>
